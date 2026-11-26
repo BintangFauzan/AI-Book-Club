@@ -1,15 +1,31 @@
 import React from 'react';
-import { View, Text, ScrollView, StyleSheet, Pressable } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 
 import { DesignColors, Fonts, Type } from '@/constants/theme';
 import { BrandHeader } from '@/components/BrandHeader';
+import { ProgressBar } from '@/components/ProgressBar';
+import { MiniCover } from '@/components/MiniCover';
 import { Toast } from '@/components/Toast';
+import { useBooks } from '@/hooks/useBooks';
+import { computeProgress } from '@/helpers/book';
+import {
+  logComplete,
+  logInfo,
+  logInput,
+  logOutput,
+  logStart,
+  logSuccess,
+  logWarn,
+} from '@/helpers/log';
 
 export default function ReaderScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const params = useLocalSearchParams();
+  const bookId = typeof params.bookId === 'string' ? params.bookId : undefined;
+  const { books, loaded, updateProgress } = useBooks();
   const [toast, setToast] = React.useState<{ visible: boolean; message: string }>({
     visible: false,
     message: '',
@@ -20,12 +36,85 @@ export default function ReaderScreen() {
     setTimeout(() => setToast({ visible: false, message: '' }), 2400);
   };
 
+  const book = books.find((b) => b.id === bookId);
+  const [page, setPage] = React.useState(book?.currentPage ?? 1);
+
+  React.useEffect(() => {
+    logStart('READER', 'persist reading progress');
+    if (book && page !== book.currentPage) {
+      const percent = book.totalPages > 0 ? Math.round((page / book.totalPages) * 100) : 0;
+      logInput('READER', 'bookId', book.id);
+      logInput('READER', 'currentPage', page);
+      logInput('READER', 'totalPages', book.totalPages);
+      logInput('READER', 'progressPercent', percent);
+      updateProgress(book.id, page, percent);
+      logOutput('READER', 'progressPercent', percent);
+      logSuccess('READER', 'persist reading progress');
+    } else {
+      logInfo('READER', 'no progress change to persist');
+      logComplete('READER', 'persist reading progress');
+    }
+  }, [book, page, updateProgress]);
+
+  if (!loaded) return <ActivityIndicator style={styles.loading} />;
+  if (!book) {
+    logWarn('READER', 'book not found');
+    logInput('READER', 'requestedBookId', bookId ?? 'undefined');
+    return (
+      <View style={styles.container}>
+        <View style={[styles.padding, { paddingTop: insets.top + 8 }]}>
+          <BrandHeader onProfile={() => showToast('Profil dan preferensi bacaan')} />
+          <Pressable
+            style={styles.back}
+            onPress={() => router.replace('/')}
+            accessibilityRole="button"
+            accessibilityLabel="Kembali"
+          >
+            <Text style={styles.backText}>← Kembali ke beranda</Text>
+          </Pressable>
+          <Text style={styles.emptyTitle}>Buku tidak ditemukan</Text>
+          <Text style={styles.emptyText}>Silakan impor sebuah PDF dari beranda.</Text>
+        </View>
+      </View>
+    );
+  }
+
+  logStart('READER', 'open reader');
+  logInput('READER', 'bookId', book.id);
+  logInput('READER', 'title', book.title);
+  logInput('READER', 'totalPages', book.totalPages);
+  logInput('READER', 'currentPage', book.currentPage);
+  logInput('READER', 'extractedCharacters', book.text.length);
+
+  const pages = book.text ? book.text.split('\n\n').filter(Boolean) : [];
+  const total = pages.length > 0 ? pages.length : Math.max(book.totalPages, 1);
+  const current = Math.max(1, Math.min(page, total));
+  const percent = computeProgress(current, total);
+  const content = pages[current - 1] || 'Teks tidak tersedia untuk buku ini.';
+  const paragraphs = content.split('\n').filter(Boolean);
+
+  logOutput('READER', 'renderedPage', current);
+  logOutput('READER', 'totalRenderPages', total);
+  logOutput('READER', 'progressPercent', percent);
+  logSuccess('READER', 'open reader');
+
+  const goTo = (next: number) => {
+    logStart('READER', 'navigate page');
+    logInput('READER', 'requestedPage', next);
+    logInput('READER', 'currentPage', current);
+    const target = Math.max(1, Math.min(next, total));
+    setPage(target);
+    showToast(target === total ? 'Halaman terakhir' : `Halaman ${target}`);
+    logOutput('READER', 'targetPage', target);
+    logSuccess('READER', 'navigate page');
+  };
+
   return (
     <View style={styles.container}>
       <Toast visible={toast.visible} message={toast.message} />
       <ScrollView contentContainerStyle={styles.scroll} style={styles.scrollView}>
         <View style={[styles.padding, { paddingTop: insets.top + 8 }]}>
-          <BrandHeader onProfile={() => showToast('Profile and reading preferences')} />
+          <BrandHeader onProfile={() => showToast('Profil dan preferensi bacaan')} />
           <View style={styles.readerHead}>
             <Pressable
               style={({ pressed }) => [styles.softBtn, pressed && styles.pressed]}
@@ -36,12 +125,12 @@ export default function ReaderScreen() {
               <Text style={styles.softBtnText}>←</Text>
             </Pressable>
             <View style={styles.center}>
-              <Text style={styles.eyebrow}>THE CREATIVE ACT</Text>
-              <Text style={styles.tiny}>Chapter 9 · The Experiment</Text>
+              <Text style={styles.eyebrow}>{book.title}</Text>
+              <Text style={styles.tiny}>Halaman {current} of {total}</Text>
             </View>
             <Pressable
               style={({ pressed }) => [styles.softBtn, pressed && styles.pressed]}
-              onPress={() => showToast('Reader settings')}
+              onPress={() => showToast('Pengaturan pembaca')}
               accessibilityRole="button"
               accessibilityLabel="Reader settings"
             >
@@ -49,73 +138,39 @@ export default function ReaderScreen() {
             </Pressable>
           </View>
 
-          <Text style={styles.eyebrow}>PAGE 186</Text>
-          <Text style={styles.title}>The beauty of the first try</Text>
-
-          <View>
-            <Text style={styles.p}>
-              When we begin something new, we bring with us the desire to get it right. But the
-              first attempt is not a verdict. It is an opening.
-            </Text>
-            <Text style={styles.p}>
-              We can give ourselves permission to make a mess. To follow a thread without knowing
-              where it leads. To{' '}
-              <Text style={styles.mark}>let curiosity move faster than judgment.</Text>
-            </Text>
-            <Text style={styles.p}>
-              In this space, the work is not a performance. It is a conversation with what wants to
-              come through.
-            </Text>
+          <View style={styles.coverWrap}>
+            <MiniCover text={book.coverText} backgroundColor={book.coverColor} fontSize={20} />
           </View>
+          <Text style={styles.bookTitle}>{book.title}</Text>
+          <Text style={styles.bookAuthor}>{book.author}</Text>
 
-          <View style={styles.actions}>
-            <Pressable
-              style={({ pressed }) => [styles.actionBtn, pressed && styles.pressed]}
-              onPress={() =>
-                showToast('AI explanation: Curiosity helps ideas develop before self-criticism narrows them.')
-              }
-              accessibilityRole="button"
-            >
-              <Text style={styles.actionText}>✦ Explain with AI</Text>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [styles.actionBtn, pressed && styles.pressed]}
-              onPress={() => showToast('Define: curiosity — a strong desire to know or learn something.')}
-              accessibilityRole="button"
-            >
-              <Text style={styles.actionText}>Define</Text>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [styles.actionBtn, pressed && styles.pressed]}
-              onPress={() => showToast('Passage saved to your highlights')}
-              accessibilityRole="button"
-            >
-              <Text style={styles.actionText}>Save highlight</Text>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [styles.actionBtn, pressed && styles.pressed]}
-              onPress={() => showToast('Quote copied to share sheet')}
-              accessibilityRole="button"
-            >
-              <Text style={styles.actionText}>Share quote</Text>
-            </Pressable>
+          <Text style={styles.eyebrow}>ISI BUKU</Text>
+          {paragraphs.map((p, i) => (
+            <Text key={i} style={styles.p}>{p}</Text>
+          ))}
+
+          <View style={styles.progressWrap}>
+            <ProgressBar percent={percent} />
+            <Text style={styles.percentText}>{percent}% selesai</Text>
           </View>
 
           <View style={styles.navRow}>
             <Pressable
-              style={({ pressed }) => [styles.navBtn, pressed && styles.pressed]}
-              onPress={() => showToast('Previous page')}
+              style={({ pressed }) => [styles.navBtn, current === 1 && styles.navBtnDisabled, pressed && styles.pressed]}
+              onPress={() => goTo(current - 1)}
               accessibilityRole="button"
+              accessibilityLabel="Halaman sebelumnya"
             >
-              <Text style={styles.navText}>‹ Previous</Text>
+              <Text style={styles.navText}>‹ Sebelumnya</Text>
             </Pressable>
-            <Text style={styles.tiny}>186 / 302</Text>
+            <Text style={styles.pageInfo}>{current} / {total}</Text>
             <Pressable
-              style={({ pressed }) => [styles.navBtnPrimary, pressed && styles.pressed]}
-              onPress={() => showToast('Opened page 187')}
+              style={({ pressed }) => [styles.navBtnPrimary, current === total && styles.navBtnDisabled, pressed && styles.pressed]}
+              onPress={() => goTo(current + 1)}
               accessibilityRole="button"
+              accessibilityLabel="Halaman berikutnya"
             >
-              <Text style={styles.navTextPrimary}>Next page ›</Text>
+              <Text style={styles.navTextPrimary}>Selanjutnya ›</Text>
             </Pressable>
           </View>
         </View>
@@ -141,6 +196,11 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     paddingHorizontal: 20,
     paddingBottom: 20,
+  },
+  loading: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   readerHead: {
     flexDirection: 'row',
@@ -175,11 +235,22 @@ const styles = StyleSheet.create({
     ...Type.tiny,
     color: DesignColors.muted,
   },
-  title: {
+  coverWrap: {
+    alignItems: 'center',
+    marginVertical: 16,
+  },
+  bookTitle: {
     fontFamily: Fonts.serif,
-    fontSize: 28,
-    lineHeight: 32,
+    fontSize: 26,
+    lineHeight: 30,
     color: DesignColors.ink,
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  bookAuthor: {
+    ...Type.muted,
+    color: DesignColors.muted,
+    textAlign: 'center',
     marginBottom: 18,
   },
   p: {
@@ -187,37 +258,22 @@ const styles = StyleSheet.create({
     fontSize: 18,
     lineHeight: 32,
     color: '#252323',
-    marginBottom: 15,
+    marginBottom: 14,
+    textAlign: 'justify',
   },
-  mark: {
-    backgroundColor: '#f0c6a9',
-    color: '#252323',
-  },
-  actions: {
-    marginTop: 20,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    rowGap: 8,
-  },
-  actionBtn: {
-    width: '48.5%',
-    minHeight: 46,
-    borderWidth: 1,
-    borderColor: 'rgba(7,7,7,0.13)',
-    borderRadius: 13,
-    backgroundColor: 'rgba(255,255,255,0.53)',
-    paddingVertical: 14,
-    paddingHorizontal: 12,
+  progressWrap: {
+    marginTop: 10,
     alignItems: 'center',
-    justifyContent: 'center',
   },
-  actionText: {
+  percentText: {
+    ...Type.tiny,
+    color: DesignColors.muted,
+    marginTop: 6,
+  },
+  pageInfo: {
+    ...Type.tiny,
+    color: DesignColors.muted,
     fontWeight: '700',
-    color: DesignColors.ink,
-    fontSize: 13,
-    lineHeight: 17,
-    textAlign: 'center',
   },
   navRow: {
     flexDirection: 'row',
@@ -233,6 +289,10 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     backgroundColor: 'rgba(255,255,255,0.66)',
     justifyContent: 'center',
+    opacity: 1,
+  },
+  navBtnDisabled: {
+    opacity: 0.4,
   },
   navBtnPrimary: {
     backgroundColor: DesignColors.ink,
@@ -241,6 +301,7 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
     paddingHorizontal: 16,
     justifyContent: 'center',
+    opacity: 1,
   },
   navText: {
     fontSize: 13,
@@ -256,5 +317,27 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.7,
+  },
+  back: {
+    marginBottom: 16,
+  },
+  backText: {
+    fontSize: 15,
+    lineHeight: 20,
+    color: DesignColors.ink,
+    textDecorationLine: 'underline',
+  },
+  emptyTitle: {
+    fontSize: 22,
+    lineHeight: 26,
+    fontWeight: '700',
+    color: DesignColors.ink,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  emptyText: {
+    ...Type.muted,
+    color: DesignColors.muted,
+    textAlign: 'center',
   },
 });

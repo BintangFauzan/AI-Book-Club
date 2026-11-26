@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { getDocumentAsync } from 'expo-document-picker';
 
 import { DesignColors, Fonts, Type } from '@/constants/theme';
 import { Streak } from '@/components/Streak';
@@ -10,6 +11,19 @@ import { Tag } from '@/components/Tag';
 import { MiniCover } from '@/components/MiniCover';
 import { BrandHeader } from '@/components/BrandHeader';
 import { Toast } from '@/components/Toast';
+import { ProgressBar } from '@/components/ProgressBar';
+import { importBook } from '@/services/pdf';
+import { useBooks } from '@/hooks/useBooks';
+import {
+  logComplete,
+  logError,
+  logInfo,
+  logInput,
+  logOutput,
+  logStart,
+  logSuccess,
+  logWarn,
+} from '@/helpers/log';
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
@@ -18,11 +32,62 @@ export default function HomeScreen() {
     visible: false,
     message: '',
   });
+  const [currentDate, setCurrentDate] = React.useState(new Date());
 
   const showToast = (message: string) => {
     setToast({ visible: true, message });
     setTimeout(() => setToast({ visible: false, message: '' }), 2400);
   };
+
+  React.useEffect(() => {
+    const timer = setInterval(() => setCurrentDate(new Date()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const { books, loaded, addBook } = useBooks();
+  const [importing, setImporting] = useState(false);
+
+  const handlePickPdf = useCallback(async () => {
+    logStart('PDF_IMPORT', 'file picker');
+    setImporting(true);
+    try {
+      logInfo('PDF_IMPORT', 'Opening device file picker (PDF only)');
+      const result = await getDocumentAsync({
+        type: 'application/pdf',
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled || result.assets.length === 0) {
+        logWarn('PDF_IMPORT', 'File picker cancelled or no asset selected');
+        setImporting(false);
+        return;
+      }
+      const asset = result.assets[0];
+      logInput('PDF_IMPORT', 'fileName', asset.name ?? 'Buku PDF');
+      logInput('PDF_IMPORT', 'uri', asset.uri);
+      logOutput('PDF_IMPORT', 'assetSelected', asset.name ?? 'Buku PDF');
+
+      const book = await importBook(asset.uri, asset.name ?? 'Buku PDF');
+      addBook(book);
+      showToast('Buku ditambahkan ke rak');
+      logInput('READER', 'bookId', book.id);
+      logOutput('PDF_IMPORT', 'navigateTo', `/reader?bookId=${book.id}`);
+      router.push(`/reader?bookId=${encodeURIComponent(book.id)}`);
+      logSuccess('PDF_IMPORT', 'file picker');
+    } catch (err: unknown) {
+      logError('PDF_IMPORT', 'Failed to process PDF', {
+        functionName: 'handlePickPdf()',
+        reason: err instanceof Error ? err.message : 'Unknown error',
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+      showToast('Gagal memproses PDF');
+    } finally {
+      setImporting(false);
+      logComplete('PDF_IMPORT', 'file picker');
+    }
+  }, [addBook, router]);
+
+  const formatDate = (date: Date) =>
+    date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).toUpperCase();
 
   return (
     <View style={styles.container}>
@@ -31,8 +96,8 @@ export default function HomeScreen() {
         <View style={[styles.padding, { paddingTop: insets.top + 8 }]}>
           <BrandHeader onProfile={() => showToast('Profile and reading preferences')} />
 
-          <Text style={styles.eyebrow}>MONDAY, OCTOBER 14</Text>
-          <Text style={styles.h1}>Make room{'\n'}for a good story.</Text>
+          <Text style={styles.eyebrow}>{formatDate(currentDate)}</Text>
+          {/*<Text style={styles.h1}>Make room{'\n'}for a good story.</Text>*/}
 
           <Streak
             days={12}
@@ -45,20 +110,31 @@ export default function HomeScreen() {
             <Tag>Reading</Tag>
           </View>
 
-          <BookCard
-            coverText={'THE\nCREATIVE\nACT'}
-            coverColor="#29434a"
-            author="Rick Rubin"
-            title="The Creative Act"
-            subtitle="Rick Rubin · 42 min left"
-            progressPercent={62}
-            page="186"
-            totalPage="302"
-            onContinue={() => {
-              showToast('Continue reading');
-              router.push('/reader');
-            }}
-          />
+          {loaded ? (
+            books.length > 0 ? (
+              <BookCard
+                coverText={books[0].coverText}
+                coverColor={books[0].coverColor}
+                author={books[0].author}
+                title={books[0].title}
+                subtitle={`${books[0].progressPercent}% selesai · Halaman ${books[0].currentPage} / ${books[0].totalPages}`}
+                progressPercent={books[0].progressPercent}
+                page={String(books[0].currentPage)}
+                totalPage={String(books[0].totalPages)}
+                onContinue={() => router.push(`/reader?bookId=${books[0].id}`)}
+              />
+            ) : (
+              <Pressable
+                style={styles.startButton}
+                onPress={handlePickPdf}
+                disabled={importing}
+                accessibilityRole="button"
+                accessibilityLabel="Mulai Membaca"
+              >
+                <Text style={styles.startButtonText}>Mulai Membaca</Text>
+              </Pressable>
+            )
+          ) : null}
 
           <View style={styles.sectionHead}>
             <Text style={styles.h2}>Today&apos;s thought</Text>
@@ -92,18 +168,30 @@ export default function HomeScreen() {
             </Pressable>
           </View>
 
-          <View style={styles.recommendRow}>
-            <MiniCover
-              text={'BRAIDING\nSWEETGRASS'}
-              backgroundColor={DesignColors.blue}
-              width={66}
-              fontSize={12}
-            />
-            <View style={styles.recommendInfo}>
-              <Text style={styles.h3}>Braiding Sweetgrass</Text>
-              <Text style={styles.muted}>Robin Wall Kimmerer</Text>
-              <Text style={styles.muted}>Recommended by your club</Text>
-            </View>
+          <View style={styles.nextChapter}>
+            {books.map((book) => (
+              <Pressable
+                key={book.id}
+                style={styles.nextCard}
+                onPress={() => router.push(`/reader?bookId=${book.id}`)}
+                accessibilityRole="button"
+                accessibilityLabel={`Lanjutkan membaca ${book.title}`}
+              >
+                <MiniCover
+                  text={book.coverText}
+                  backgroundColor={book.coverColor}
+                  fontSize={16}
+                />
+                <View style={styles.nextInfo}>
+                  <Text style={styles.nextTitle}>{book.title}</Text>
+                  <Text style={styles.nextAuthor}>{book.author}</Text>
+                  <View style={styles.nextProgress}>
+                    <ProgressBar percent={book.progressPercent} />
+                    <Text style={styles.nextPercent}>{book.progressPercent}%</Text>
+                  </View>
+                </View>
+              </Pressable>
+            ))}
           </View>
         </View>
       </ScrollView>
@@ -181,13 +269,52 @@ const styles = StyleSheet.create({
     lineHeight: 25,
     color: DesignColors.ink,
   },
-  recommendRow: {
-    flexDirection: 'row',
-    gap: 12,
-    alignItems: 'center',
+  startButton: {
+    alignSelf: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 28,
+    borderRadius: 14,
+    backgroundColor: DesignColors.sand,
   },
-  recommendInfo: {
+  startButtonText: {
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '700',
+    color: DesignColors.ink,
+    textAlign: 'center',
+  },
+  nextChapter: {
+    gap: 12,
+  },
+  nextCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: DesignColors.sand,
+    borderRadius: 18,
+    padding: 14,
+    minHeight: 100,
+  },
+  nextInfo: {
     flex: 1,
     minWidth: 0,
+  },
+  nextTitle: {
+    fontFamily: Fonts.serif,
+    fontSize: 18,
+    lineHeight: 22,
+    color: DesignColors.ink,
+  },
+  nextAuthor: {
+    ...Type.muted,
+    color: DesignColors.muted,
+  },
+  nextProgress: {
+    marginTop: 8,
+  },
+  nextPercent: {
+    ...Type.tiny,
+    color: DesignColors.muted,
+    marginTop: 4,
   },
 });
