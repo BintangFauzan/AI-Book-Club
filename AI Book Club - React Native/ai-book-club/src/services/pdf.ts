@@ -8,6 +8,8 @@ import {
   EncodingType,
 } from 'expo-file-system/legacy';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+// @ts-expect-error PDF.js tidak menyediakan deklarasi TypeScript untuk worker.
+import * as pdfjsWorker from 'pdfjs-dist/legacy/build/pdf.worker.mjs';
 import type { Book } from '@/hooks/useBooks';
 import { hashColor, makeCoverText } from '@/helpers/book';
 import {
@@ -22,6 +24,17 @@ import {
 
 const BOOK_DIR = `${documentDirectory ?? ''}books/`;
 const HAS_STORAGE = documentDirectory != null;
+
+type PdfJsWorkerModule = {
+  WorkerMessageHandler: unknown;
+};
+
+type PdfJsGlobal = typeof globalThis & {
+  pdfjsWorker?: PdfJsWorkerModule;
+};
+
+(globalThis as PdfJsGlobal).pdfjsWorker =
+  pdfjsWorker as PdfJsWorkerModule;
 
 async function ensureDir(): Promise<void> {
   logStart('PDF_STORAGE', 'ensureDir');
@@ -90,7 +103,7 @@ export async function importBook(uri: string, fileName: string): Promise<Book> {
   if (!uri?.trim()) throw new Error('[PDF_STORAGE] Source URI is empty');
   const source = await getInfoAsync(uri);
   logInfo('PDF_STORAGE', `Source file: ${JSON.stringify(source)}`);
-  if (!source.exists || source.isDirectory || (source.size != null && source.size <= 0)) {
+  if (!source.exists || source.isDirectory) {
     throw new Error(`[PDF_STORAGE] Invalid source file: ${uri}`);
   }
   const id = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;

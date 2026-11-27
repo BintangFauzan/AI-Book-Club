@@ -29,6 +29,10 @@ jest.mock('expo-file-system/legacy', () => ({
   EncodingType: { Base64: 'base64' },
 }));
 
+jest.mock('pdfjs-dist/legacy/build/pdf.worker.mjs', () => ({
+  WorkerMessageHandler: {},
+}));
+
 jest.mock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
   getDocument: jest.fn(),
 }));
