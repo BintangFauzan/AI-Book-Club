@@ -96,10 +96,20 @@ export async function importBook(uri: string, fileName: string): Promise<Book> {
     }
     throw err;
   }
-  const target = await getInfoAsync(dest);
-  logInfo('PDF_STORAGE', `Destination verification: ${JSON.stringify(target)}`);
-  if (!target.exists || target.isDirectory || (target.size != null && target.size <= 0)) {
-    throw new Error(`[PDF_STORAGE] Destination verification failed: ${dest}`);
+  let target;
+  try {
+    target = await getInfoAsync(dest);
+    logInfo('PDF_STORAGE', `Destination verification: ${JSON.stringify(target)}`);
+    if (!target.exists || target.isDirectory || (target.size != null && target.size <= 0)) {
+      throw new Error(`[PDF_STORAGE] Destination verification failed: ${dest}`);
+    }
+  } catch (err: unknown) {
+    try { await deleteAsync(dest, { idempotent: true }); } catch (cleanupErr: unknown) {
+      logError('PDF_STORAGE', 'Destination cleanup failed', { functionName: 'deleteAsync()',
+        reason: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+        originalError: err instanceof Error ? err.message : String(err) });
+    }
+    throw err;
   }
 
   const title = (fileName || 'Buku PDF').replace(/\.pdf$/i, '');
@@ -110,21 +120,26 @@ export async function importBook(uri: string, fileName: string): Promise<Book> {
   let totalPages = 0;
   let author = 'Penulis tidak diketahui';
 
+  let base64: string;
+  try {
+    logInput('PDF_STORAGE', 'readDestination', dest);
+    base64 = await readAsStringAsync(dest, { encoding: EncodingType.Base64 });
+    logOutput('PDF_STORAGE', 'base64Length', base64.length);
+  } catch (err: unknown) {
+    logError('PDF_STORAGE', 'Failed to read verified PDF', { functionName: 'readAsStringAsync()', uri: dest,
+      reason: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined });
+    try { await deleteAsync(dest, { idempotent: true }); } catch (cleanupErr: unknown) {
+      logError('PDF_STORAGE', 'Read failure cleanup failed', { functionName: 'deleteAsync()',
+        reason: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+        originalError: err instanceof Error ? err.message : String(err) });
+    }
+    throw err;
+  }
+
   try {
     logStart('PDF_EXTRACT', 'text extraction');
     logInput('PDF_EXTRACT', 'file', dest);
-    // pdf.js needs a Worker environment (browser). On React Native without one,
-    // this throws and we degrade gracefully to a cover-only book record.
-    let base64: string;
-    try {
-      logInput('PDF_STORAGE', 'readDestination', dest);
-      base64 = await readAsStringAsync(dest, { encoding: EncodingType.Base64 });
-      logOutput('PDF_STORAGE', 'base64Length', base64.length);
-    } catch (err: unknown) {
-      logError('PDF_STORAGE', 'Failed to read verified PDF', { functionName: 'readAsStringAsync()', uri: dest,
-        reason: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined });
-      throw err;
-    }
+    // pdf.js needs a Worker environment (browser); on React Native failure degrades to cover-only.
     const pdf: any = await getDocument({ data: base64ToBytes(base64) }).promise;
     totalPages = pdf.numPages || 0;
     logOutput('PDF_EXTRACT', 'totalPages', totalPages);
