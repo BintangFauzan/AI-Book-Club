@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 
 import { DesignColors, Fonts, Type } from '@/constants/theme';
 import { Streak } from '@/components/Streak';
@@ -20,6 +21,7 @@ import { BrandHeader } from '@/components/BrandHeader';
 import { Toast } from '@/components/Toast';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useBooks } from '@/contexts/BookContext';
+import { useHighlights } from '@/contexts/HighlightContext';
 import { useToast } from '@/contexts/ToastContext';
 
 export default function HomeScreen() {
@@ -27,7 +29,24 @@ export default function HomeScreen() {
   const router = useRouter();
   const { toast, showToast } = useToast();
   const { books, loaded, importing, importProgress, importBookFromDevice } = useBooks();
+  const { currentQuote } = useHighlights();
   const [currentDate, setCurrentDate] = React.useState(new Date());
+  const player = useAudioPlayer(require('../../assets/audio/always-with-me.mp3'));
+  const playerStatus = useAudioPlayerStatus(player);
+
+  React.useEffect(() => {
+    // expo-audio tidak punya opsi loop di hook; set imperatif setelah player dibuat.
+    // eslint-disable-next-line react-hooks/immutability
+    player.loop = true;
+  }, [player]);
+
+  function toggleMusic() {
+    if (playerStatus.playing) {
+      player.pause();
+    } else {
+      player.play();
+    }
+  }
 
   React.useEffect(() => {
     const timer = setInterval(() => setCurrentDate(new Date()), 60000);
@@ -50,6 +69,10 @@ export default function HomeScreen() {
       .toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
       .toUpperCase();
   }
+
+  const currentQuoteBook = currentQuote
+    ? books.find((book) => book.id === currentQuote.bookId)
+    : undefined;
 
   return (
     <View style={styles.container}>
@@ -117,20 +140,20 @@ export default function HomeScreen() {
 
           <View style={styles.sectionHead}>
             <Text style={styles.h2}>Today&apos;s thought</Text>
-            <Pressable
-              style={styles.textLink}
-              onPress={() => showToast('Quote saved to your collection')}
-              accessibilityRole="button"
-            >
-              <Text style={styles.textLinkText}>Save quote</Text>
-            </Pressable>
           </View>
 
           <View style={styles.quoteBlock}>
-            <Text style={styles.quote}>
-              “The act of creating is not limited to making things. It is a way of moving through
-              the world.”
-            </Text>
+            {currentQuote ? (
+              <View style={styles.savedQuote}>
+                <Text style={styles.quote}>“{currentQuote.text}”</Text>
+                <Text style={styles.quoteBook}>{currentQuoteBook?.title ?? ''}</Text>
+              </View>
+            ) : (
+              <Text style={styles.quote}>
+                “The act of creating is not limited to making things. It is a way of moving through
+                the world.”
+              </Text>
+            )}
           </View>
 
           <View style={styles.sectionHead}>
@@ -193,6 +216,14 @@ export default function HomeScreen() {
           </View>
         </View>
       </ScrollView>
+      <Pressable
+        style={[styles.musicButton, { bottom: insets.bottom }]}
+        onPress={toggleMusic}
+        accessibilityRole="button"
+        accessibilityLabel={playerStatus.playing ? 'Jeda musik' : 'Putar musik'}
+      >
+        <Text style={styles.musicIcon}>{playerStatus.playing ? '❚❚' : '▶'}</Text>
+      </Pressable>
     </View>
   );
 }
@@ -266,6 +297,17 @@ const styles = StyleSheet.create({
     fontSize: 17,
     lineHeight: 25,
     color: DesignColors.ink,
+  },
+  savedQuote: {
+    marginBottom: 12,
+  },
+  quoteBook: {
+    ...Type.tiny,
+    color: DesignColors.brown,
+    fontWeight: '700',
+    marginTop: 5,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
   },
   startButton: {
     alignSelf: 'center',
@@ -377,5 +419,25 @@ const styles = StyleSheet.create({
     ...Type.tiny,
     color: DesignColors.muted,
     marginTop: 4,
+  },
+  musicButton: {
+    position: 'absolute',
+    right: 20,
+    width: 56,
+    height: 48,
+    borderRadius: 28,
+    backgroundColor: DesignColors.brown,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  musicIcon: {
+    color: DesignColors.paper,
+    fontSize: 20,
+    lineHeight: 24,
   },
 });
