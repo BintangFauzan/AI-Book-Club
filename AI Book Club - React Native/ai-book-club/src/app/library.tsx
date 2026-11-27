@@ -1,4 +1,5 @@
-import { View, Text, ScrollView, StyleSheet, Pressable } from 'react-native';
+import React from 'react';
+import { View, Text, ScrollView, StyleSheet, Pressable, TextInput } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 
@@ -14,7 +15,9 @@ export default function LibraryScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { toast, showToast } = useToast();
-  const { books, loaded, importing, importBookFromDevice } = useBooks();
+  const { books, loaded, importing, importBookFromDevice, searchBooks } = useBooks();
+  const [query, setQuery] = React.useState('');
+  const filteredBooks = searchBooks(query);
   const inProgress = books.filter(
     (book) => book.progressPercent > 0 && book.progressPercent < 100
   ).length;
@@ -39,13 +42,18 @@ export default function LibraryScreen() {
             <Text style={styles.muted}>
               {books.length} books · {inProgress} in progress
             </Text>
-            <Pressable
-              style={styles.searchWrap}
-              onPress={() => showToast('Search your library')}
-              accessibilityRole="button"
-            >
-              <Text style={styles.searchText}>⌕ Search</Text>
-            </Pressable>
+            <View style={styles.searchWrap}>
+              <Text style={styles.searchIcon}>⌕</Text>
+              <TextInput
+                style={styles.searchInput}
+                value={query}
+                onChangeText={setQuery}
+                placeholder="Search"
+                placeholderTextColor={DesignColors.muted}
+                accessibilityLabel="Cari buku"
+                returnKeyType="search"
+              />
+            </View>
           </View>
 
           {loaded && books.length === 0 ? (
@@ -54,8 +62,14 @@ export default function LibraryScreen() {
             </Text>
           ) : null}
 
+          {loaded && books.length > 0 && filteredBooks.length === 0 ? (
+            <Text style={[styles.muted, styles.empty]}>
+              Tidak ada buku yang cocok dengan “{query.trim()}”.
+            </Text>
+          ) : null}
+
           <View style={styles.grid}>
-            {books.map((book) => (
+            {filteredBooks.map((book) => (
               <Pressable
                 key={book.id}
                 style={styles.cardWrap}
@@ -140,17 +154,26 @@ const styles = StyleSheet.create({
     marginTop: 24,
   },
   searchWrap: {
-    justifyContent: 'center',
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: 'rgba(255,255,255,0.66)',
     borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     minHeight: 44,
   },
-  searchText: {
-    fontWeight: '700',
+  searchIcon: {
+    fontSize: 16,
+    lineHeight: 20,
+    color: DesignColors.muted,
+    marginRight: 6,
+  },
+  searchInput: {
+    flex: 1,
+    paddingVertical: 10,
     fontSize: 13,
     lineHeight: 17,
+    fontWeight: '700',
     color: DesignColors.ink,
   },
   grid: {

@@ -41,6 +41,7 @@ type BookContextValue = {
   addBook: (book: Book) => void;
   updateProgress: (bookId: string, currentPage: number, progressPercent: number) => void;
   importBookFromDevice: () => Promise<Book | null>;
+  searchBooks: (query: string) => Book[];
 };
 
 const BookContext = createContext<BookContextValue | null>(null);
@@ -174,6 +175,26 @@ export function BookProvider({ children }: { children: ReactNode }) {
     [addBook, showToast]
   );
 
+  const searchBooks = useCallback(
+    function searchBooks(query: string): Book[] {
+      const normalizedQuery = query.trim().toLowerCase();
+      if (!normalizedQuery) {
+        return books;
+      }
+      logStart('BOOK_SEARCH', 'search books');
+      logInput('BOOK_SEARCH', 'query', normalizedQuery);
+      const result = books.filter(
+        (book) =>
+          book.title.toLowerCase().includes(normalizedQuery) ||
+          book.author.toLowerCase().includes(normalizedQuery)
+      );
+      logOutput('BOOK_SEARCH', 'resultCount', result.length);
+      logSuccess('BOOK_SEARCH', 'search books');
+      return result;
+    },
+    [books]
+  );
+
   const value = useMemo(
     () => ({
       books,
@@ -183,8 +204,18 @@ export function BookProvider({ children }: { children: ReactNode }) {
       addBook,
       updateProgress,
       importBookFromDevice,
+      searchBooks,
     }),
-    [books, loaded, importing, importProgress, addBook, updateProgress, importBookFromDevice]
+    [
+      books,
+      loaded,
+      importing,
+      importProgress,
+      addBook,
+      updateProgress,
+      importBookFromDevice,
+      searchBooks,
+    ]
   );
 
   return <BookContext.Provider value={value}>{children}</BookContext.Provider>;
