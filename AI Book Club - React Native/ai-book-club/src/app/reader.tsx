@@ -87,10 +87,11 @@ export default function ReaderScreen() {
   logInput('READER', 'extractedCharacters', book.text.length);
 
   const pages = book.text ? book.text.split('\n\n').filter(Boolean) : [];
-  const total = pages.length > 0 ? pages.length : Math.max(book.totalPages, 1);
-  const current = Math.max(1, Math.min(page, total));
-  const percent = computeProgress(current, total);
-  const content = pages[current - 1] || 'Teks tidak tersedia untuk buku ini.';
+  const total = pages.length > 0 ? pages.length : book.totalPages;
+  const hasReadableText = pages.length > 0 && total > 0;
+  const current = hasReadableText ? Math.max(1, Math.min(page, total)) : 0;
+  const percent = hasReadableText ? computeProgress(current, total) : 0;
+  const content = hasReadableText ? pages[current - 1] : '';
   const paragraphs = content.split('\n').filter(Boolean);
 
   logOutput('READER', 'renderedPage', current);
@@ -126,7 +127,7 @@ export default function ReaderScreen() {
             </Pressable>
             <View style={styles.center}>
               <Text style={styles.eyebrow}>{book.title}</Text>
-              <Text style={styles.tiny}>Halaman {current} of {total}</Text>
+              <Text style={styles.tiny}>{hasReadableText ? `Halaman ${current} of ${total}` : 'Halaman tidak tersedia'}</Text>
             </View>
             <Pressable
               style={({ pressed }) => [styles.softBtn, pressed && styles.pressed]}
@@ -145,9 +146,11 @@ export default function ReaderScreen() {
           <Text style={styles.bookAuthor}>{book.author}</Text>
 
           <Text style={styles.eyebrow}>ISI BUKU</Text>
-          {paragraphs.map((p, i) => (
-            <Text key={i} style={styles.p}>{p}</Text>
-          ))}
+          {hasReadableText ? (
+            paragraphs.map((p, i) => <Text key={i} style={styles.p}>{p}</Text>)
+          ) : (
+            <Text style={styles.p}>Teks buku tidak tersedia. PDF perlu diimpor ulang setelah ekstraksi berhasil.</Text>
+          )}
 
           <View style={styles.progressWrap}>
             <ProgressBar percent={percent} />
@@ -156,17 +159,19 @@ export default function ReaderScreen() {
 
           <View style={styles.navRow}>
             <Pressable
-              style={({ pressed }) => [styles.navBtn, current === 1 && styles.navBtnDisabled, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.navBtn, (!hasReadableText || current === 1) && styles.navBtnDisabled, pressed && styles.pressed]}
               onPress={() => goTo(current - 1)}
+              disabled={!hasReadableText || current === 1}
               accessibilityRole="button"
               accessibilityLabel="Halaman sebelumnya"
             >
               <Text style={styles.navText}>‹ Sebelumnya</Text>
             </Pressable>
-            <Text style={styles.pageInfo}>{current} / {total}</Text>
+            <Text style={styles.pageInfo}>{hasReadableText ? `${current} / ${total}` : '— / —'}</Text>
             <Pressable
-              style={({ pressed }) => [styles.navBtnPrimary, current === total && styles.navBtnDisabled, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.navBtnPrimary, (!hasReadableText || current === total) && styles.navBtnDisabled, pressed && styles.pressed]}
               onPress={() => goTo(current + 1)}
+              disabled={!hasReadableText || current === total}
               accessibilityRole="button"
               accessibilityLabel="Halaman berikutnya"
             >
