@@ -1,4 +1,25 @@
-const mockFs = {
+
+import {
+  beforeEach,
+  describe,
+  expect,
+  it,
+  jest,
+} from '@jest/globals';
+
+type FileInfo = {
+  exists: boolean;
+  isDirectory?: boolean;
+  size?: number;
+};
+
+type PdfMock = {
+  numPages: number;
+  getMetadata: () => Promise<Record<string, unknown>>;
+};
+
+// Factory mock tidak bergantung pada variabel luar.
+jest.mock('expo-file-system/legacy', () => ({
   documentDirectory: 'file:///docs/',
   readAsStringAsync: jest.fn(),
   copyAsync: jest.fn(),
@@ -6,31 +27,89 @@ const mockFs = {
   deleteAsync: jest.fn(),
   getInfoAsync: jest.fn(),
   EncodingType: { Base64: 'base64' },
+}));
+
+jest.mock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
+  getDocument: jest.fn(),
+}));
+
+jest.mock('@/helpers/log', () => ({
+  logError: jest.fn(),
+  logInfo: jest.fn(),
+  logInput: jest.fn(),
+  logOutput: jest.fn(),
+  logStart: jest.fn(),
+  logSuccess: jest.fn(),
+  logWarn: jest.fn(),
+}));
+
+jest.mock('@/helpers/book', () => ({
+  hashColor: () => '#000',
+  makeCoverText: () => 'BOOK',
+}));
+
+type FsMocks = {
+  getInfoAsync: jest.MockedFunction<(uri: string) => Promise<FileInfo>>;
+  copyAsync: jest.MockedFunction<
+    (options: { from: string; to: string }) => Promise<void>
+  >;
+  makeDirectoryAsync: jest.MockedFunction<
+    (uri: string, options: { intermediates: boolean }) => Promise<void>
+  >;
+  deleteAsync: jest.MockedFunction<
+    (uri: string, options: { idempotent: boolean }) => Promise<void>
+  >;
+  readAsStringAsync: jest.MockedFunction<
+    (uri: string, options: { encoding: string }) => Promise<string>
+  >;
 };
-const mockGetDocument = jest.fn();
-const mockMocks = { fs: mockFs, getDocument: mockGetDocument };
 
-jest.mock('expo-file-system/legacy', () => mockMocks.fs);
-jest.mock('pdfjs-dist/legacy/build/pdf.mjs', () => ({ getDocument: mockMocks.getDocument }));
-jest.mock('@/helpers/log', () => new Proxy({}, { get: () => jest.fn() }));
-jest.mock('@/helpers/book', () => ({ hashColor: () => '#000', makeCoverText: () => 'BOOK' }));
+type PdfMocks = {
+  getDocument: jest.MockedFunction<
+    (options: { data: Uint8Array }) => {
+      promise: Promise<PdfMock>;
+    }
+  >;
+};
 
+const mockFs = jest.requireMock('expo-file-system/legacy') as FsMocks;
+const mockGetDocument = (
+  jest.requireMock('pdfjs-dist/legacy/build/pdf.mjs') as PdfMocks
+).getDocument;
+
+// eslint-disable-next-line import/first
 import { importBook } from '../pdf';
 
 describe('PDF storage import', () => {
+
   beforeEach(() => {
     jest.clearAllMocks();
+
     mockFs.getInfoAsync.mockImplementation(async (uri: string) => {
-      if (uri.endsWith('books/')) return { exists: true, isDirectory: true };
-      if (uri === 'source.pdf') return { exists: true, isDirectory: false, size: 20 };
+      if (uri.endsWith('books/')) {
+        return { exists: true, isDirectory: true };
+      }
+
+      if (uri === 'source.pdf') {
+        return { exists: true, isDirectory: false, size: 20 };
+      }
+
       return { exists: true, isDirectory: false, size: 20 };
     });
+
     mockFs.copyAsync.mockResolvedValue(undefined);
     mockFs.makeDirectoryAsync.mockResolvedValue(undefined);
     mockFs.deleteAsync.mockResolvedValue(undefined);
     mockFs.readAsStringAsync.mockResolvedValue('base64');
-    mockGetDocument.mockResolvedValue({ promise: Promise.resolve({ numPages: 0, getMetadata: async () => ({}) }) });
+
+    mockGetDocument.mockReturnValue({
+      promise: Promise.resolve({
+        numPages: 0,
+        getMetadata: async () => ({}),
+      }),
+    });
   });
+
 
   it('accepts existing directory and verifies copied file before reading', async () => {
     const book = await importBook('source.pdf', 'source.pdf');
@@ -92,8 +171,12 @@ describe('PDF storage import', () => {
   });
 
   it('keeps cover-only fallback for PDF.js failure after successful read', async () => {
-    mockGetDocument.mockRejectedValue(new Error('pdfjs failed'));
+    mockGetDocument.mockReturnValue({
+      promise: Promise.reject(new Error('pdfjs failed')),
+    });
+
     const book = await importBook('source.pdf', 'source.pdf');
+
     expect(book.uri).toMatch(/books\/.*\.pdf$/);
     expect(mockFs.readAsStringAsync).toHaveBeenCalled();
     expect(mockFs.deleteAsync).not.toHaveBeenCalled();
