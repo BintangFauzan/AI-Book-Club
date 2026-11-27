@@ -1,4 +1,3 @@
-import React from 'react';
 import { View, Text, ScrollView, StyleSheet, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -8,63 +7,24 @@ import { Tag } from '@/components/Tag';
 import { MiniCover } from '@/components/MiniCover';
 import { BrandHeader } from '@/components/BrandHeader';
 import { Toast } from '@/components/Toast';
-
-type BookItem = {
-  id: string;
-  coverColor: string;
-  coverText: string;
-  title: string;
-  author: string;
-  tag: string;
-};
-
-const BOOKS: BookItem[] = [
-  {
-    id: '1',
-    coverColor: '#b7c8d2',
-    coverText: 'BRAIDING\nSWEETGRASS',
-    title: 'Braiding Sweetgrass',
-    author: 'Robin Wall Kimmerer',
-    tag: 'Want to read',
-  },
-  {
-    id: '2',
-    coverColor: '#cfbeae',
-    coverText: 'TOMORROW\nAND TOMORROW',
-    title: "Tomorrow, and Tomorrow, and Tomorrow",
-    author: 'Gabrielle Zevin',
-    tag: 'Finished',
-  },
-  {
-    id: '3',
-    coverColor: '#9da4ac',
-    coverText: 'PACHINKO',
-    title: 'Pachinko',
-    author: 'Min Jin Lee',
-    tag: 'Reading · 38%',
-  },
-  {
-    id: '4',
-    coverColor: '#e89c6c',
-    coverText: 'THE\nCREATIVE ACT',
-    title: 'The Creative Act',
-    author: 'Rick Rubin',
-    tag: 'Reading · 62%',
-  },
-];
+import { useToast } from '@/contexts/ToastContext';
+import { useBooks } from '@/contexts/BookContext';
 
 export default function LibraryScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const [toast, setToast] = React.useState<{ visible: boolean; message: string }>({
-    visible: false,
-    message: '',
-  });
+  const { toast, showToast } = useToast();
+  const { books, loaded, importing, importBookFromDevice } = useBooks();
+  const inProgress = books.filter(
+    (book) => book.progressPercent > 0 && book.progressPercent < 100
+  ).length;
 
-  const showToast = (message: string) => {
-    setToast({ visible: true, message });
-    setTimeout(() => setToast({ visible: false, message: '' }), 2400);
-  };
+  async function handleAddBook() {
+    const book = await importBookFromDevice();
+    if (book) {
+      router.push(`/reader?bookId=${encodeURIComponent(book.id)}`);
+    }
+  }
 
   return (
     <View style={styles.container}>
@@ -76,7 +36,9 @@ export default function LibraryScreen() {
           <Text style={styles.h1}>Bookshelf</Text>
 
           <View style={styles.headerRow}>
-            <Text style={styles.muted}>12 books · 3 in progress</Text>
+            <Text style={styles.muted}>
+              {books.length} books · {inProgress} in progress
+            </Text>
             <Pressable
               style={styles.searchWrap}
               onPress={() => showToast('Search your library')}
@@ -86,25 +48,37 @@ export default function LibraryScreen() {
             </Pressable>
           </View>
 
+          {loaded && books.length === 0 ? (
+            <Text style={[styles.muted, styles.empty]}>
+              Belum ada buku. Import PDF dari perangkat untuk mulai membaca.
+            </Text>
+          ) : null}
+
           <View style={styles.grid}>
-            {BOOKS.map((item) => (
+            {books.map((book) => (
               <Pressable
-                key={item.id}
+                key={book.id}
                 style={styles.cardWrap}
-                onPress={() => router.push('/reader')}
+                onPress={() => router.push(`/reader?bookId=${encodeURIComponent(book.id)}`)}
                 accessibilityRole="button"
-                accessibilityLabel={`${item.title} by ${item.author}`}
+                accessibilityLabel={`${book.title} by ${book.author}`}
               >
                 <MiniCover
-                  text={item.coverText}
-                  backgroundColor={item.coverColor}
+                  text={book.coverText}
+                  backgroundColor={book.coverColor}
                   width="100%"
                   fontSize={18}
                 />
-                <Text style={styles.title}>{item.title}</Text>
-                <Text style={[styles.muted, styles.author]}>{item.author}</Text>
+                <Text style={styles.title}>{book.title}</Text>
+                <Text style={[styles.muted, styles.author]}>{book.author}</Text>
                 <View style={styles.tagWrap}>
-                  <Tag>{item.tag}</Tag>
+                  <Tag>
+                    {book.progressPercent >= 100
+                      ? 'Finished'
+                      : book.progressPercent > 0
+                        ? `Reading · ${book.progressPercent}%`
+                        : 'Want to read'}
+                  </Tag>
                 </View>
               </Pressable>
             ))}
@@ -112,10 +86,11 @@ export default function LibraryScreen() {
 
           <Pressable
             style={({ pressed }) => [styles.addWrap, pressed && styles.pressed]}
-            onPress={() => showToast('Add a book to your shelf')}
+            onPress={handleAddBook}
+            disabled={importing}
             accessibilityRole="button"
           >
-            <Text style={styles.addText}>＋ Add a book</Text>
+            <Text style={styles.addText}>{importing ? 'Mengimpor...' : '＋ Add a book'}</Text>
           </Pressable>
         </View>
       </ScrollView>
@@ -160,6 +135,9 @@ const styles = StyleSheet.create({
   muted: {
     ...Type.muted,
     color: DesignColors.muted,
+  },
+  empty: {
+    marginTop: 24,
   },
   searchWrap: {
     justifyContent: 'center',

@@ -1,4 +1,3 @@
-import React from 'react';
 import { View, Text, ScrollView, StyleSheet, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -7,25 +6,13 @@ import { MiniCover } from '@/components/MiniCover';
 import { Waveform } from '@/components/Waveform';
 import { BrandHeader } from '@/components/BrandHeader';
 import { Toast } from '@/components/Toast';
+import { useAudio } from '@/contexts/AudioContext';
+import { useToast } from '@/contexts/ToastContext';
 
 export default function AudioScreen() {
   const insets = useSafeAreaInsets();
-  const [playing, setPlaying] = React.useState(false);
-  const [toast, setToast] = React.useState<{ visible: boolean; message: string }>({
-    visible: false,
-    message: '',
-  });
-
-  const showToast = (message: string) => {
-    setToast({ visible: true, message });
-    setTimeout(() => setToast({ visible: false, message: '' }), 2400);
-  };
-
-  const togglePlay = () => {
-    const next = !playing;
-    setPlaying(next);
-    showToast(next ? 'Playing chapter' : 'Playback paused');
-  };
+  const { playing, togglePlay } = useAudio();
+  const { toast, showToast } = useToast();
 
   return (
     <View style={styles.container}>

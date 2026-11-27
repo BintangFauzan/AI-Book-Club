@@ -7,10 +7,10 @@ import {
   getInfoAsync,
   EncodingType,
 } from 'expo-file-system/legacy';
-import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { getDocument, PDFWorker } from 'pdfjs-dist/legacy/build/pdf.mjs';
 // @ts-expect-error PDF.js tidak menyediakan deklarasi TypeScript untuk worker.
-import * as pdfjsWorker from 'pdfjs-dist/legacy/build/pdf.worker.mjs';
-import type { Book } from '@/hooks/useBooks';
+import { WorkerMessageHandler } from 'pdfjs-dist/legacy/build/pdf.worker.mjs';
+import type { Book } from '@/contexts/BookContext';
 import { hashColor, makeCoverText } from '@/helpers/book';
 import {
   logError,
@@ -25,16 +25,44 @@ import {
 const BOOK_DIR = `${documentDirectory ?? ''}books/`;
 const HAS_STORAGE = documentDirectory != null;
 
-type PdfJsWorkerModule = {
-  WorkerMessageHandler: unknown;
+type PdfWorkerHandler = {
+  initializeFromPort(port: LoopbackPort): void;
 };
 
-type PdfJsGlobal = typeof globalThis & {
-  pdfjsWorker?: PdfJsWorkerModule;
-};
+// Hermes tidak bisa meng-compile dynamic import() yang dipakai loader fake
+// worker pdf.js. Loopback port ini membuat pdf.js berjalan di main thread
+// tanpa pernah menyentuh loader tersebut.
+class LoopbackPort {
+  #listeners = new Map<(event: { data: unknown }) => void, null>();
 
-(globalThis as PdfJsGlobal).pdfjsWorker =
-  pdfjsWorker as PdfJsWorkerModule;
+  postMessage(message: unknown): void {
+    const data = structuredClone(message);
+    Promise.resolve().then(() => {
+      for (const [listener] of this.#listeners) listener({ data });
+    });
+  }
+
+  addEventListener(
+    _type: string,
+    listener: (event: { data: unknown }) => void,
+  ): void {
+    this.#listeners.set(listener, null);
+  }
+
+  removeEventListener(
+    _type: string,
+    listener: (event: { data: unknown }) => void,
+  ): void {
+    this.#listeners.delete(listener);
+  }
+}
+
+function createPdfWorker(): PDFWorker {
+  const port = new LoopbackPort();
+  (WorkerMessageHandler as unknown as PdfWorkerHandler).initializeFromPort(port);
+  // @ts-expect-error pdf.js mengharapkan MessagePort DOM; port loopback mengimplementasikan permukaan API yang sama.
+  return new PDFWorker({ port });
+}
 
 async function ensureDir(): Promise<void> {
   logStart('PDF_STORAGE', 'ensureDir');
@@ -94,7 +122,11 @@ async function cleanupFile(uri: string): Promise<void> {
   }
 }
 
-export async function importBook(uri: string, fileName: string): Promise<Book> {
+export async function importBook(
+  uri: string,
+  fileName: string,
+  onProgress?: (percent: number) => void,
+): Promise<Book> {
   logStart('PDF_IMPORT', 'PDF import');
   logInput('PDF_IMPORT', 'fileName', fileName);
   logInput('PDF_IMPORT', 'uri', uri);
@@ -161,6 +193,9 @@ export async function importBook(uri: string, fileName: string): Promise<Book> {
     throw err;
   }
 
+  let loadingTask: ReturnType<typeof getDocument> | null = null;
+  let worker: PDFWorker | null = null;
+
   // Ekstraksi teks menggunakan PDF.js.
   // Kegagalan PDF.js tetap diperbolehkan karena buku
   // masih bisa disimpan tanpa teks hasil ekstraksi.
@@ -168,12 +203,16 @@ export async function importBook(uri: string, fileName: string): Promise<Book> {
     logStart('PDF_EXTRACT', 'text extraction');
     logInput('PDF_EXTRACT', 'file', dest);
 
-    const pdf: any = await getDocument({
+    worker = createPdfWorker();
+    loadingTask = getDocument({
       data: base64ToBytes(base64),
-    }).promise;
+      worker,
+    });
+    const pdf: any = await loadingTask.promise;
 
     totalPages = pdf.numPages || 0;
     logOutput('PDF_EXTRACT', 'totalPages', totalPages);
+    onProgress?.(5);
 
     try {
       const meta = await pdf.getMetadata();
@@ -192,6 +231,7 @@ export async function importBook(uri: string, fileName: string): Promise<Book> {
           .map((it) => it.str)
           .join(' ')
       );
+      onProgress?.(totalPages > 0 ? 5 + Math.round((i / totalPages) * 95) : 100);
     }
 
     text = parts.join('\n\n').trim();
@@ -210,6 +250,11 @@ export async function importBook(uri: string, fileName: string): Promise<Book> {
       'PDF_EXTRACT',
       'Extraction unavailable; keeping book with fallback cover'
     );
+  } finally {
+    if (loadingTask) {
+      await loadingTask.destroy().catch(() => {});
+    }
+    worker?.destroy();
   }
 
   logOutput('PDF_IMPORT', 'bookId', id);

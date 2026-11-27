@@ -3,13 +3,12 @@ import { DesignColors, Fonts, Type } from '@/constants/theme';
 
 type DialogClubProps = {
   visible: boolean;
+  clubs: string[];
   onClose: () => void;
   onSelect: (name: string) => void;
 };
 
-const CLUBS = ['The Marginalia Club', 'Quiet Readers', 'New Fiction Circle'];
-
-export function DialogClub({ visible, onClose, onSelect }: DialogClubProps) {
+export function DialogClub({ visible, clubs, onClose, onSelect }: DialogClubProps) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
@@ -17,7 +16,7 @@ export function DialogClub({ visible, onClose, onSelect }: DialogClubProps) {
           <Text style={styles.title}>Choose your club</Text>
           <Text style={styles.subtitle}>Switch to a space that fits your reading mood.</Text>
           <View style={styles.list}>
-            {CLUBS.map((name) => (
+            {clubs.map((name) => (
               <Pressable
                 key={name}
                 style={({ pressed }) => [styles.clubChoice, pressed && styles.pressed]}

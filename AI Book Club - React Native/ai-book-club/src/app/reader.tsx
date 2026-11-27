@@ -1,65 +1,23 @@
-import React from 'react';
 import { View, Text, ScrollView, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter } from 'expo-router';
 
 import { DesignColors, Fonts, Type } from '@/constants/theme';
 import { BrandHeader } from '@/components/BrandHeader';
 import { ProgressBar } from '@/components/ProgressBar';
 import { MiniCover } from '@/components/MiniCover';
 import { Toast } from '@/components/Toast';
-import { useBooks } from '@/hooks/useBooks';
-import { computeProgress } from '@/helpers/book';
-import {
-  logComplete,
-  logInfo,
-  logInput,
-  logOutput,
-  logStart,
-  logSuccess,
-  logWarn,
-} from '@/helpers/log';
+import { useReader } from '@/contexts/ReaderContext';
+import { useToast } from '@/contexts/ToastContext';
 
 export default function ReaderScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const params = useLocalSearchParams();
-  const bookId = typeof params.bookId === 'string' ? params.bookId : undefined;
-  const { books, loaded, updateProgress } = useBooks();
-  const [toast, setToast] = React.useState<{ visible: boolean; message: string }>({
-    visible: false,
-    message: '',
-  });
-
-  const showToast = (message: string) => {
-    setToast({ visible: true, message });
-    setTimeout(() => setToast({ visible: false, message: '' }), 2400);
-  };
-
-  const book = books.find((b) => b.id === bookId);
-  const [page, setPage] = React.useState(book?.currentPage ?? 1);
-
-  React.useEffect(() => {
-    logStart('READER', 'persist reading progress');
-    if (book && page !== book.currentPage) {
-      const percent = book.totalPages > 0 ? Math.round((page / book.totalPages) * 100) : 0;
-      logInput('READER', 'bookId', book.id);
-      logInput('READER', 'currentPage', page);
-      logInput('READER', 'totalPages', book.totalPages);
-      logInput('READER', 'progressPercent', percent);
-      updateProgress(book.id, page, percent);
-      logOutput('READER', 'progressPercent', percent);
-      logSuccess('READER', 'persist reading progress');
-    } else {
-      logInfo('READER', 'no progress change to persist');
-      logComplete('READER', 'persist reading progress');
-    }
-  }, [book, page, updateProgress]);
+  const { toast, showToast } = useToast();
+  const { book, loaded, hasReadableText, current, total, percent, paragraphs, goTo } = useReader();
 
   if (!loaded) return <ActivityIndicator style={styles.loading} />;
   if (!book) {
-    logWarn('READER', 'book not found');
-    logInput('READER', 'requestedBookId', bookId ?? 'undefined');
     return (
       <View style={styles.container}>
         <View style={[styles.padding, { paddingTop: insets.top + 8 }]}>
@@ -78,37 +36,6 @@ export default function ReaderScreen() {
       </View>
     );
   }
-
-  logStart('READER', 'open reader');
-  logInput('READER', 'bookId', book.id);
-  logInput('READER', 'title', book.title);
-  logInput('READER', 'totalPages', book.totalPages);
-  logInput('READER', 'currentPage', book.currentPage);
-  logInput('READER', 'extractedCharacters', book.text.length);
-
-  const pages = book.text ? book.text.split('\n\n').filter(Boolean) : [];
-  const total = pages.length > 0 ? pages.length : book.totalPages;
-  const hasReadableText = pages.length > 0 && total > 0;
-  const current = hasReadableText ? Math.max(1, Math.min(page, total)) : 0;
-  const percent = hasReadableText ? computeProgress(current, total) : 0;
-  const content = hasReadableText ? pages[current - 1] : '';
-  const paragraphs = content.split('\n').filter(Boolean);
-
-  logOutput('READER', 'renderedPage', current);
-  logOutput('READER', 'totalRenderPages', total);
-  logOutput('READER', 'progressPercent', percent);
-  logSuccess('READER', 'open reader');
-
-  const goTo = (next: number) => {
-    logStart('READER', 'navigate page');
-    logInput('READER', 'requestedPage', next);
-    logInput('READER', 'currentPage', current);
-    const target = Math.max(1, Math.min(next, total));
-    setPage(target);
-    showToast(target === total ? 'Halaman terakhir' : `Halaman ${target}`);
-    logOutput('READER', 'targetPage', target);
-    logSuccess('READER', 'navigate page');
-  };
 
   return (
     <View style={styles.container}>

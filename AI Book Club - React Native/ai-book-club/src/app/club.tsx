@@ -9,37 +9,23 @@ import { Tag } from '@/components/Tag';
 import { ProgressBar } from '@/components/ProgressBar';
 import { DialogClub } from '@/components/DialogClub';
 import { Toast } from '@/components/Toast';
+import { useClub } from '@/contexts/ClubContext';
+import { useToast } from '@/contexts/ToastContext';
 
 export default function ClubScreen() {
   const insets = useSafeAreaInsets();
+  const { toast, showToast } = useToast();
+  const { clubs, pollOptions, clubName, pollSelected, switchClub, votePoll } = useClub();
   const [dialogVisible, setDialogVisible] = React.useState(false);
-  const [clubName, setClubName] = React.useState('The Marginalia Club');
-  const [pollSelected, setPollSelected] = React.useState<string | null>(null);
-  const [toast, setToast] = React.useState<{ visible: boolean; message: string }>({
-    visible: false,
-    message: '',
-  });
-
-  const showToast = (message: string) => {
-    setToast({ visible: true, message });
-    setTimeout(() => setToast({ visible: false, message: '' }), 2400);
-  };
-
-  const handlePollSelect = (label: string) => {
-    setPollSelected(label);
-    showToast(`Your vote: ${label} · 18 votes`);
-  };
 
   return (
     <View style={styles.container}>
       <Toast visible={toast.visible} message={toast.message} />
       <DialogClub
         visible={dialogVisible}
+        clubs={clubs}
         onClose={() => setDialogVisible(false)}
-        onSelect={(name) => {
-          setClubName(name);
-          showToast('Club switched');
-        }}
+        onSelect={switchClub}
       />
       <ScrollView contentContainerStyle={styles.scroll} style={styles.scrollView}>
         <View style={[styles.padding, { paddingTop: insets.top + 8 }]}>
@@ -136,7 +122,7 @@ export default function ClubScreen() {
               <Tag>Today</Tag>
             </View>
             <Text style={styles.muted}>Where do your best ideas show up?</Text>
-            {['On a walk', 'In a quiet room', 'In conversation'].map((option) => (
+            {pollOptions.map((option) => (
               <Pressable
                 key={option}
                 style={({ pressed }) => [
@@ -144,7 +130,7 @@ export default function ClubScreen() {
                   pollSelected === option && styles.pollSelected,
                   pressed && styles.pressed,
                 ]}
-                onPress={() => handlePollSelect(option)}
+                onPress={() => votePoll(option)}
                 accessibilityRole="radio"
                 accessibilityState={{ checked: pollSelected === option }}
               >

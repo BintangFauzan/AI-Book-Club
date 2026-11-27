@@ -30,11 +30,14 @@ jest.mock('expo-file-system/legacy', () => ({
 }));
 
 jest.mock('pdfjs-dist/legacy/build/pdf.worker.mjs', () => ({
-  WorkerMessageHandler: {},
+  WorkerMessageHandler: { initializeFromPort: jest.fn() },
 }));
 
 jest.mock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
   getDocument: jest.fn(),
+  PDFWorker: class {
+    destroy() {}
+  },
 }));
 
 jest.mock('@/helpers/log', () => ({
@@ -70,8 +73,9 @@ type FsMocks = {
 
 type PdfMocks = {
   getDocument: jest.MockedFunction<
-    (options: { data: Uint8Array }) => {
+    (options: { data: Uint8Array; worker?: unknown }) => {
       promise: Promise<PdfMock>;
+      destroy: () => Promise<void>;
     }
   >;
 };
@@ -111,6 +115,7 @@ describe('PDF storage import', () => {
         numPages: 0,
         getMetadata: async () => ({}),
       }),
+      destroy: jest.fn(async () => {}),
     });
   });
 
@@ -121,6 +126,9 @@ describe('PDF storage import', () => {
     expect(mockFs.makeDirectoryAsync).not.toHaveBeenCalled();
     expect(mockFs.getInfoAsync).toHaveBeenCalledWith(book.uri);
     expect(mockFs.readAsStringAsync).toHaveBeenCalledWith(book.uri, { encoding: 'base64' });
+    expect(mockGetDocument).toHaveBeenCalledWith(
+      expect.objectContaining({ worker: expect.anything() }),
+    );
   });
 
   it('creates a missing directory', async () => {
@@ -177,6 +185,7 @@ describe('PDF storage import', () => {
   it('keeps cover-only fallback for PDF.js failure after successful read', async () => {
     mockGetDocument.mockReturnValue({
       promise: Promise.reject(new Error('pdfjs failed')),
+      destroy: jest.fn(async () => {}),
     });
 
     const book = await importBook('source.pdf', 'source.pdf');

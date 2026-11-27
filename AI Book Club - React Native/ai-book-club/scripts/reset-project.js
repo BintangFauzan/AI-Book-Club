@@ -60,7 +60,7 @@ const rl = readline.createInterface({
   output: process.stdout,
 });
 
-const moveDirectories = async (userInput) => {
+async function moveDirectories(userInput) {
   try {
     if (userInput === "y") {
       // Create the app-example directory
@@ -129,7 +129,7 @@ const moveDirectories = async (userInput) => {
   } catch (error) {
     console.error(`❌ Error during script execution: ${error.message}`);
   }
-};
+}
 
 rl.question(
   "Do you want to move existing files to /example instead of deleting them? (Y/n): ",

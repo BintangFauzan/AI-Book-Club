@@ -1,8 +1,15 @@
-import React, { useCallback, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, Pressable, Platform } from 'react-native';
+import React from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  StyleSheet,
+  Pressable,
+  Modal,
+  ActivityIndicator,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { getDocumentAsync } from 'expo-document-picker';
 
 import { DesignColors, Fonts, Type } from '@/constants/theme';
 import { Streak } from '@/components/Streak';
@@ -12,86 +19,58 @@ import { MiniCover } from '@/components/MiniCover';
 import { BrandHeader } from '@/components/BrandHeader';
 import { Toast } from '@/components/Toast';
 import { ProgressBar } from '@/components/ProgressBar';
-import { importBook } from '@/services/pdf';
-import { useBooks } from '@/hooks/useBooks';
-import {
-  logComplete,
-  logError,
-  logInfo,
-  logInput,
-  logOutput,
-  logStart,
-  logSuccess,
-  logWarn,
-} from '@/helpers/log';
+import { useBooks } from '@/contexts/BookContext';
+import { useToast } from '@/contexts/ToastContext';
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const [toast, setToast] = React.useState<{ visible: boolean; message: string }>({
-    visible: false,
-    message: '',
-  });
+  const { toast, showToast } = useToast();
+  const { books, loaded, importing, importProgress, importBookFromDevice } = useBooks();
   const [currentDate, setCurrentDate] = React.useState(new Date());
-
-  const showToast = (message: string) => {
-    setToast({ visible: true, message });
-    setTimeout(() => setToast({ visible: false, message: '' }), 2400);
-  };
 
   React.useEffect(() => {
     const timer = setInterval(() => setCurrentDate(new Date()), 60000);
     return () => clearInterval(timer);
   }, []);
 
-  const { books, loaded, addBook } = useBooks();
-  const [importing, setImporting] = useState(false);
+  function handleDismissImport() {
+    // Impor tidak bisa dibatalkan di tengah jalan.
+  }
 
-  const handlePickPdf = useCallback(async () => {
-    logStart('PDF_IMPORT', 'file picker');
-    setImporting(true);
-    try {
-      logInfo('PDF_IMPORT', 'Opening device file picker (PDF only)');
-      const result = await getDocumentAsync({
-        type: 'application/pdf',
-        copyToCacheDirectory: Platform.OS !== 'android',
-      });
-      if (result.canceled || result.assets.length === 0) {
-        logWarn('PDF_IMPORT', 'File picker cancelled or no asset selected');
-        setImporting(false);
-        return;
-      }
-      const asset = result.assets[0];
-      logInput('PDF_IMPORT', 'fileName', asset.name ?? 'Buku PDF');
-      logInput('PDF_IMPORT', 'uri', asset.uri);
-      logOutput('PDF_IMPORT', 'assetSelected', asset.name ?? 'Buku PDF');
-
-      const book = await importBook(asset.uri, asset.name ?? 'Buku PDF');
-      addBook(book);
-      showToast('Buku ditambahkan ke rak');
-      logInput('READER', 'bookId', book.id);
-      logOutput('PDF_IMPORT', 'navigateTo', `/reader?bookId=${book.id}`);
+  async function handlePickPdf() {
+    const book = await importBookFromDevice();
+    if (book) {
       router.push(`/reader?bookId=${encodeURIComponent(book.id)}`);
-      logSuccess('PDF_IMPORT', 'file picker');
-    } catch (err: unknown) {
-      logError('PDF_IMPORT', 'Failed to process PDF', {
-        functionName: 'handlePickPdf()',
-        reason: err instanceof Error ? err.message : 'Unknown error',
-        stack: err instanceof Error ? err.stack : undefined,
-      });
-      showToast('Gagal memproses PDF');
-    } finally {
-      setImporting(false);
-      logComplete('PDF_IMPORT', 'file picker');
     }
-  }, [addBook, router]);
+  }
 
-  const formatDate = (date: Date) =>
-    date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).toUpperCase();
+  function formatDate(date: Date) {
+    return date
+      .toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+      .toUpperCase();
+  }
 
   return (
     <View style={styles.container}>
       <Toast visible={toast.visible} message={toast.message} />
+      <Modal
+        visible={importing}
+        transparent
+        animationType="fade"
+        onRequestClose={handleDismissImport}
+      >
+        <View style={styles.importOverlay}>
+          <View style={styles.importPanel} accessibilityViewIsModal>
+            <ActivityIndicator size="large" color={DesignColors.brown} />
+            <Text style={styles.importTitle}>Mengimpor buku</Text>
+            <Text style={styles.importPercent}>
+              {importProgress > 0 ? `${importProgress}%` : 'Menyiapkan file...'}
+            </Text>
+            <Text style={styles.importHint}>Buku besar butuh waktu lebih lama.</Text>
+          </View>
+        </View>
+      </Modal>
       <ScrollView contentContainerStyle={styles.scroll} style={styles.scrollView}>
         <View style={[styles.padding, { paddingTop: insets.top + 8 }]}>
           <BrandHeader onProfile={() => showToast('Profile and reading preferences')} />
@@ -169,6 +148,25 @@ export default function HomeScreen() {
           </View>
 
           <View style={styles.nextChapter}>
+            {loaded && books.length === 0 ? (
+              <Pressable
+                style={styles.importCard}
+                onPress={handlePickPdf}
+                disabled={importing}
+                accessibilityRole="button"
+                accessibilityLabel="Import buku baru"
+              >
+                <View style={styles.importIcon}>
+                  <Text style={styles.importIconText}>+</Text>
+                </View>
+                <View style={styles.nextInfo}>
+                  <Text style={styles.nextTitle}>
+                    {importing ? 'Mengimpor...' : 'Import buku baru'}
+                  </Text>
+                  <Text style={styles.nextAuthor}>Tambah PDF dari perangkat</Text>
+                </View>
+              </Pressable>
+            ) : null}
             {books.map((book) => (
               <Pressable
                 key={book.id}
@@ -294,6 +292,69 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 14,
     minHeight: 100,
+  },
+  importOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(7,7,7,0.44)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  importPanel: {
+    backgroundColor: DesignColors.white,
+    borderRadius: 22,
+    padding: 26,
+    width: '100%',
+    maxWidth: 300,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.25,
+    shadowRadius: 30,
+    elevation: 12,
+  },
+  importTitle: {
+    fontFamily: Fonts.serif,
+    fontSize: 22,
+    lineHeight: 26,
+    color: DesignColors.ink,
+    marginTop: 16,
+  },
+  importPercent: {
+    ...Type.h2,
+    color: DesignColors.brown,
+    marginTop: 6,
+  },
+  importHint: {
+    ...Type.muted,
+    color: DesignColors.muted,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  importCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: DesignColors.muted,
+    padding: 14,
+    minHeight: 100,
+  },
+  importIcon: {
+    width: 66,
+    aspectRatio: 0.7,
+    borderRadius: 8,
+    backgroundColor: DesignColors.paper,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  importIconText: {
+    fontFamily: Fonts.serif,
+    fontSize: 34,
+    lineHeight: 38,
+    color: DesignColors.brown,
   },
   nextInfo: {
     flex: 1,

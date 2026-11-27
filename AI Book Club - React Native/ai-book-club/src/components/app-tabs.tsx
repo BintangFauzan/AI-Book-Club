@@ -19,7 +19,7 @@ export default function AppTabs() {
         tabBarActiveTintColor: DesignColors.brown,
         tabBarInactiveTintColor: DesignColors.muted,
         tabBarStyle: {
-          backgroundColor: DesignColors.paper,
+          backgroundColor: 'rgba(230,231,230,0.95)',
           borderTopColor: 'rgba(7,7,7,0.07)',
         },
       }}
