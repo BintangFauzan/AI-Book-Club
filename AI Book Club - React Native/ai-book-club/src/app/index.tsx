@@ -38,6 +38,7 @@ export default function HomeScreen() {
     // expo-audio tidak punya opsi loop di hook; set imperatif setelah player dibuat.
     // eslint-disable-next-line react-hooks/immutability
     player.loop = true;
+    player.play();
   }, [player]);
 
   function toggleMusic() {
@@ -437,7 +438,7 @@ const styles = StyleSheet.create({
   },
   musicIcon: {
     color: DesignColors.paper,
-    fontSize: 20,
+    fontSize: 25,
     lineHeight: 24,
   },
 });
