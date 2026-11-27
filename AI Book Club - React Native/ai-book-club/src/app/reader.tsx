@@ -1,8 +1,9 @@
+import { useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 
-import { DesignColors, Fonts, Type } from '@/constants/theme';
+import { DesignColors, FontOptions, Fonts, Type } from '@/constants/theme';
 import { BrandHeader } from '@/components/BrandHeader';
 import { ProgressBar } from '@/components/ProgressBar';
 import { MiniCover } from '@/components/MiniCover';
@@ -14,7 +15,8 @@ export default function ReaderScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { toast, showToast } = useToast();
-  const { book, loaded, hasReadableText, current, total, percent, paragraphs, goTo } = useReader();
+  const { book, loaded, hasReadableText, current, total, percent, paragraphs, goTo, fontFamily, fontSize, setFontFamily, changeFontSize } = useReader();
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   if (!loaded) return <ActivityIndicator style={styles.loading} />;
   if (!book) {
@@ -58,13 +60,70 @@ export default function ReaderScreen() {
             </View>
             <Pressable
               style={({ pressed }) => [styles.softBtn, pressed && styles.pressed]}
-              onPress={() => showToast('Pengaturan pembaca')}
+              onPress={() => setSettingsOpen((open) => !open)}
               accessibilityRole="button"
-              accessibilityLabel="Reader settings"
+              accessibilityLabel="Pengaturan font pembaca"
+              accessibilityState={{ expanded: settingsOpen }}
             >
               <Text style={styles.softBtnText}>Aa</Text>
             </Pressable>
           </View>
+
+          {settingsOpen ? (
+            <View style={styles.settings}>
+              <View style={styles.settingsRow}>
+                <Text style={styles.settingsLabel}>Ukuran teks</Text>
+                <View style={styles.sizeControls}>
+                  <Pressable
+                    style={({ pressed }) => [styles.sizeBtn, pressed && styles.pressed]}
+                    onPress={() => changeFontSize(-2)}
+                    disabled={fontSize <= 12}
+                    accessibilityRole="button"
+                    accessibilityLabel="Perkecil ukuran teks"
+                  >
+                    <Text style={styles.sizeBtnText}>A−</Text>
+                  </Pressable>
+                  <Text style={styles.sizeValue}>{fontSize}</Text>
+                  <Pressable
+                    style={({ pressed }) => [styles.sizeBtn, pressed && styles.pressed]}
+                    onPress={() => changeFontSize(2)}
+                    disabled={fontSize >= 32}
+                    accessibilityRole="button"
+                    accessibilityLabel="Perbesar ukuran teks"
+                  >
+                    <Text style={styles.sizeBtnText}>A+</Text>
+                  </Pressable>
+                </View>
+              </View>
+              <Text style={styles.settingsLabel}>Jenis font</Text>
+              <View style={styles.fontRow}>
+                {FontOptions.map((option) => (
+                  <Pressable
+                    key={option.label}
+                    style={({ pressed }) => [
+                      styles.fontChip,
+                      option.value === fontFamily && styles.fontChipActive,
+                      pressed && styles.pressed,
+                    ]}
+                    onPress={() => setFontFamily(option.value)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Font ${option.label}`}
+                    accessibilityState={{ selected: option.value === fontFamily }}
+                  >
+                    <Text
+                      style={[
+                        styles.fontChipText,
+                        { fontFamily: option.value },
+                        option.value === fontFamily && styles.fontChipTextActive,
+                      ]}
+                    >
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          ) : null}
 
           <View style={styles.coverWrap}>
             <MiniCover text={book.coverText} backgroundColor={book.coverColor} fontSize={20} />
@@ -74,7 +133,14 @@ export default function ReaderScreen() {
 
           <Text style={styles.eyebrow}>ISI BUKU</Text>
           {hasReadableText ? (
-            paragraphs.map((p, i) => <Text key={i} style={styles.p}>{p}</Text>)
+            paragraphs.map((p, i) => (
+              <Text
+                key={i}
+                style={[styles.p, { fontFamily, fontSize, lineHeight: Math.round(fontSize * 1.75) }]}
+              >
+                {p}
+              </Text>
+            ))
           ) : (
             <Text style={styles.p}>Teks buku tidak tersedia. PDF perlu diimpor ulang setelah ekstraksi berhasil.</Text>
           )}
@@ -192,6 +258,73 @@ const styles = StyleSheet.create({
     color: '#252323',
     marginBottom: 14,
     textAlign: 'justify',
+  },
+  settings: {
+    backgroundColor: 'rgba(255,255,255,0.66)',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 20,
+    gap: 10,
+  },
+  settingsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  settingsLabel: {
+    ...Type.eyebrow,
+    color: DesignColors.muted,
+  },
+  sizeControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  sizeBtn: {
+    minWidth: 40,
+    minHeight: 36,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: DesignColors.paper,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sizeBtnText: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '700',
+    color: DesignColors.ink,
+  },
+  sizeValue: {
+    ...Type.tiny,
+    color: DesignColors.ink,
+    fontWeight: '700',
+    minWidth: 20,
+    textAlign: 'center',
+  },
+  fontRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  fontChip: {
+    minHeight: 36,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: DesignColors.paper,
+    justifyContent: 'center',
+  },
+  fontChipActive: {
+    backgroundColor: DesignColors.ink,
+  },
+  fontChipText: {
+    fontSize: 13,
+    lineHeight: 17,
+    color: DesignColors.ink,
+  },
+  fontChipTextActive: {
+    color: '#fff',
   },
   progressWrap: {
     marginTop: 10,

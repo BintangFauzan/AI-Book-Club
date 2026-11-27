@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from 'react';
 import { useGlobalSearchParams } from 'expo-router';
 
+import { Fonts } from '@/constants/theme';
 import { useBooks } from '@/contexts/BookContext';
 import type { Book } from '@/contexts/BookContext';
 import { useToast } from '@/contexts/ToastContext';
@@ -25,6 +26,10 @@ type ReaderContextValue = {
   percent: number;
   paragraphs: string[];
   goTo: (page: number) => void;
+  fontFamily: string;
+  fontSize: number;
+  setFontFamily: (fontFamily: string) => void;
+  changeFontSize: (delta: number) => void;
 };
 
 const ReaderContext = createContext<ReaderContextValue | null>(null);
@@ -36,6 +41,8 @@ export function ReaderProvider({ children }: { children: ReactNode }) {
   const { showToast } = useToast();
   const book = books.find((b) => b.id === bookId);
   const [page, setPage] = useState<number | null>(null);
+  const [fontFamily, setFontFamily] = useState<string>(Fonts.serif);
+  const [fontSize, setFontSize] = useState(18);
   const currentPage = page ?? book?.currentPage ?? 1;
 
   useEffect(() => {
@@ -94,6 +101,10 @@ export function ReaderProvider({ children }: { children: ReactNode }) {
     [current, total, showToast]
   );
 
+  const changeFontSize = useCallback(function changeFontSize(delta: number) {
+    setFontSize((size) => Math.max(12, Math.min(32, size + delta)));
+  }, []);
+
   const value = useMemo(
     () => ({
       book,
@@ -104,8 +115,24 @@ export function ReaderProvider({ children }: { children: ReactNode }) {
       percent,
       paragraphs,
       goTo,
+      fontFamily,
+      fontSize,
+      setFontFamily,
+      changeFontSize,
     }),
-    [book, loaded, hasReadableText, current, total, percent, paragraphs, goTo]
+    [
+      book,
+      loaded,
+      hasReadableText,
+      current,
+      total,
+      percent,
+      paragraphs,
+      goTo,
+      fontFamily,
+      fontSize,
+      changeFontSize,
+    ]
   );
 
   return <ReaderContext.Provider value={value}>{children}</ReaderContext.Provider>;

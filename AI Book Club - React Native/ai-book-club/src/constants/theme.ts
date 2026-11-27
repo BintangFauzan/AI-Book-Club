@@ -27,6 +27,64 @@ export const Fonts = {
     }) ?? 'serif',
 } as const;
 
+/* Pilihan font pembaca, memakai font sistem supaya tidak perlu bundling aset. */
+export const FontOptions = [
+  {
+    label: 'Georgia',
+    value: Fonts.serif,
+  },
+  {
+    label: 'Times New Roman',
+    value:
+      Platform.select({
+        ios: 'Times New Roman',
+        android: 'serif',
+        web: "'Times New Roman', Times, serif",
+        default: 'serif',
+      }) ?? 'serif',
+  },
+  {
+    label: 'Palatino',
+    value:
+      Platform.select({
+        ios: 'Palatino',
+        android: 'serif',
+        web: 'Palatino, "Palatino Linotype", serif',
+        default: 'serif',
+      }) ?? 'serif',
+  },
+  {
+    label: 'Helvetica',
+    value:
+      Platform.select({
+        ios: 'Helvetica Neue',
+        android: 'sans-serif',
+        web: 'Helvetica, Arial, sans-serif',
+        default: 'sans-serif',
+      }) ?? 'sans-serif',
+  },
+  {
+    label: 'Courier',
+    value:
+      Platform.select({
+        ios: 'Courier New',
+        android: 'monospace',
+        web: "'Courier New', Courier, monospace",
+        default: 'monospace',
+      }) ?? 'monospace',
+  },
+  {
+    label: 'Verdana',
+    value:
+      Platform.select({
+        ios: 'Verdana',
+        android: 'sans-serif',
+        web: 'Verdana, Geneva, sans-serif',
+        default: 'sans-serif',
+      }) ?? 'sans-serif',
+  },
+] as const;
+
 /* React Native lineHeight is absolute, so the design's ratios are resolved here. */
 export const Type = {
   h1: { fontFamily: Fonts.serif, fontSize: 34, lineHeight: 35, letterSpacing: -1 },
