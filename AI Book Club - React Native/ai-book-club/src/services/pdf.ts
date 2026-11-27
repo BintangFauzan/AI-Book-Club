@@ -3,6 +3,7 @@ import {
   readAsStringAsync,
   copyAsync,
   makeDirectoryAsync,
+  deleteAsync,
   getInfoAsync,
   EncodingType,
 } from 'expo-file-system/legacy';
@@ -25,28 +26,25 @@ const HAS_STORAGE = documentDirectory != null;
 
 async function ensureDir(): Promise<void> {
   logStart('PDF_STORAGE', 'ensureDir');
+  if (!HAS_STORAGE) throw new Error('[PDF_STORAGE] documentDirectory unavailable');
   logInput('PDF_STORAGE', 'bookDir', BOOK_DIR);
-  if (!HAS_STORAGE) {
-    logWarn('PDF_STORAGE', 'documentDirectory not available; skipping dir creation');
-    logComplete('PDF_STORAGE', 'ensureDir');
-    return;
-  }
   try {
     const info = await getInfoAsync(BOOK_DIR);
+    logInfo('PDF_STORAGE', `Directory exists: ${info.exists}`);
     if (!info.exists) {
+      logStart('PDF_STORAGE', 'makeDirectoryAsync');
       await makeDirectoryAsync(BOOK_DIR, { intermediates: true });
-      logSuccess('PDF_STORAGE', 'ensureDir');
-    } else {
-      logInfo('PDF_STORAGE', 'book directory already exists');
-      logComplete('PDF_STORAGE', 'ensureDir');
+      logSuccess('PDF_STORAGE', 'makeDirectoryAsync');
     }
+    const verified = await getInfoAsync(BOOK_DIR);
+    if (!verified.exists || !verified.isDirectory) throw new Error(`Invalid book directory: ${JSON.stringify(verified)}`);
+    logSuccess('PDF_STORAGE', 'ensureDir');
   } catch (err: unknown) {
-    logError('PDF_STORAGE', 'Failed to ensure book directory', {
-      functionName: 'ensureDir()',
-      reason: err instanceof Error ? err.message : String(err),
+    logError('PDF_STORAGE', 'Failed to prepare book directory', {
+      functionName: 'ensureDir()', reason: err instanceof Error ? err.message : String(err),
       stack: err instanceof Error ? err.stack : undefined,
     });
-    logComplete('PDF_STORAGE', 'ensureDir');
+    throw err;
   }
 }
 
@@ -77,18 +75,31 @@ export async function importBook(uri: string, fileName: string): Promise<Book> {
   logInput('PDF_IMPORT', 'uri', uri);
 
   await ensureDir();
-  const id = `${Date.now()}`;
-  const dest = HAS_STORAGE ? `${BOOK_DIR}${id}.pdf` : uri;
-  if (HAS_STORAGE) {
-    try {
-      await copyAsync({ from: uri, to: dest });
-      logSuccess('PDF_IMPORT', 'file copied to book directory');
-    } catch {
-      logWarn('PDF_IMPORT', 'Failed to copy file; using original uri');
-      logInput('PDF_IMPORT', 'fallbackUri', uri);
+  if (!uri?.trim()) throw new Error('[PDF_STORAGE] Source URI is empty');
+  const source = await getInfoAsync(uri);
+  logInfo('PDF_STORAGE', `Source file: ${JSON.stringify(source)}`);
+  if (!source.exists || source.isDirectory || (source.size != null && source.size <= 0)) {
+    throw new Error(`[PDF_STORAGE] Invalid source file: ${uri}`);
+  }
+  const id = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const dest = `${BOOK_DIR}${id}.pdf`;
+  logInfo('PDF_STORAGE', `Copy from ${uri} to ${dest}`);
+  try {
+    await copyAsync({ from: uri, to: dest });
+  } catch (err: unknown) {
+    logError('PDF_STORAGE', 'Copy failed', { functionName: 'copyAsync()', from: uri, to: dest,
+      reason: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined });
+    try { await deleteAsync(dest, { idempotent: true }); } catch (cleanupErr: unknown) {
+      logError('PDF_STORAGE', 'Partial destination cleanup failed', { functionName: 'deleteAsync()',
+        reason: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+        originalError: err instanceof Error ? err.message : String(err) });
     }
-  } else {
-    logWarn('PDF_IMPORT', 'documentDirectory not available; using original uri');
+    throw err;
+  }
+  const target = await getInfoAsync(dest);
+  logInfo('PDF_STORAGE', `Destination verification: ${JSON.stringify(target)}`);
+  if (!target.exists || target.isDirectory || (target.size != null && target.size <= 0)) {
+    throw new Error(`[PDF_STORAGE] Destination verification failed: ${dest}`);
   }
 
   const title = (fileName || 'Buku PDF').replace(/\.pdf$/i, '');
@@ -104,10 +115,16 @@ export async function importBook(uri: string, fileName: string): Promise<Book> {
     logInput('PDF_EXTRACT', 'file', dest);
     // pdf.js needs a Worker environment (browser). On React Native without one,
     // this throws and we degrade gracefully to a cover-only book record.
-    const base64 = await readAsStringAsync(dest, {
-      encoding: EncodingType.Base64,
-    });
-    logOutput('PDF_EXTRACT', 'base64Length', base64.length);
+    let base64: string;
+    try {
+      logInput('PDF_STORAGE', 'readDestination', dest);
+      base64 = await readAsStringAsync(dest, { encoding: EncodingType.Base64 });
+      logOutput('PDF_STORAGE', 'base64Length', base64.length);
+    } catch (err: unknown) {
+      logError('PDF_STORAGE', 'Failed to read verified PDF', { functionName: 'readAsStringAsync()', uri: dest,
+        reason: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined });
+      throw err;
+    }
     const pdf: any = await getDocument({ data: base64ToBytes(base64) }).promise;
     totalPages = pdf.numPages || 0;
     logOutput('PDF_EXTRACT', 'totalPages', totalPages);
