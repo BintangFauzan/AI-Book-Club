@@ -11,7 +11,6 @@ import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import type { Book } from '@/hooks/useBooks';
 import { hashColor, makeCoverText } from '@/helpers/book';
 import {
-  logComplete,
   logError,
   logInfo,
   logInput,
@@ -69,6 +68,19 @@ function base64ToBytes(base64: string): Uint8Array {
   return bytes;
 }
 
+async function cleanupFile(uri: string): Promise<void> {
+  try {
+    await deleteAsync(uri, { idempotent: true });
+  } catch (cleanupError) {
+    logError('PDF_STORAGE', 'Cleanup failed', {
+      functionName: 'cleanupFile()',
+      reason: cleanupError instanceof Error
+        ? cleanupError.message
+        : String(cleanupError),
+    });
+  }
+}
+
 export async function importBook(uri: string, fileName: string): Promise<Book> {
   logStart('PDF_IMPORT', 'PDF import');
   logInput('PDF_IMPORT', 'fileName', fileName);
@@ -84,16 +96,18 @@ export async function importBook(uri: string, fileName: string): Promise<Book> {
   const id = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   const dest = `${BOOK_DIR}${id}.pdf`;
   logInfo('PDF_STORAGE', `Copy from ${uri} to ${dest}`);
+
   try {
     await copyAsync({ from: uri, to: dest });
   } catch (err: unknown) {
-    logError('PDF_STORAGE', 'Copy failed', { functionName: 'copyAsync()', from: uri, to: dest,
-      reason: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined });
-    try { await deleteAsync(dest, { idempotent: true }); } catch (cleanupErr: unknown) {
-      logError('PDF_STORAGE', 'Partial destination cleanup failed', { functionName: 'deleteAsync()',
-        reason: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
-        originalError: err instanceof Error ? err.message : String(err) });
-    }
+    logError('PDF_STORAGE', 'Copy failed', {
+      functionName: 'copyAsync()',
+      reason: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    });
+
+    await cleanupFile(dest);
+
     throw err;
   }
   let target;
@@ -104,12 +118,8 @@ export async function importBook(uri: string, fileName: string): Promise<Book> {
       throw new Error(`[PDF_STORAGE] Destination verification failed: ${dest}`);
     }
   } catch (err: unknown) {
-    try { await deleteAsync(dest, { idempotent: true }); } catch (cleanupErr: unknown) {
-      logError('PDF_STORAGE', 'Destination cleanup failed', { functionName: 'deleteAsync()',
-        reason: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
-        originalError: err instanceof Error ? err.message : String(err) });
-    }
-    throw err;
+    await cleanupFile(dest);
+       throw err;
   }
 
   const title = (fileName || 'Buku PDF').replace(/\.pdf$/i, '');
@@ -119,51 +129,74 @@ export async function importBook(uri: string, fileName: string): Promise<Book> {
   let text = '';
   let totalPages = 0;
   let author = 'Penulis tidak diketahui';
-
   let base64: string;
+
+  // Baca file PDF dari penyimpanan aplikasi.
+  // Jika gagal, hentikan proses impor.
   try {
-    logInput('PDF_STORAGE', 'readDestination', dest);
-    base64 = await readAsStringAsync(dest, { encoding: EncodingType.Base64 });
-    logOutput('PDF_STORAGE', 'base64Length', base64.length);
+    base64 = await readAsStringAsync(dest, {
+      encoding: EncodingType.Base64,
+    });
   } catch (err: unknown) {
-    logError('PDF_STORAGE', 'Failed to read verified PDF', { functionName: 'readAsStringAsync()', uri: dest,
-      reason: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined });
-    try { await deleteAsync(dest, { idempotent: true }); } catch (cleanupErr: unknown) {
-      logError('PDF_STORAGE', 'Read failure cleanup failed', { functionName: 'deleteAsync()',
-        reason: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
-        originalError: err instanceof Error ? err.message : String(err) });
-    }
+    logError('PDF_STORAGE', 'Failed to read verified PDF', {
+      functionName: 'readAsStringAsync()',
+      reason: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    });
+
+    await cleanupFile(dest);
     throw err;
   }
 
+  // Ekstraksi teks menggunakan PDF.js.
+  // Kegagalan PDF.js tetap diperbolehkan karena buku
+  // masih bisa disimpan tanpa teks hasil ekstraksi.
   try {
     logStart('PDF_EXTRACT', 'text extraction');
     logInput('PDF_EXTRACT', 'file', dest);
-    // pdf.js needs a Worker environment (browser); on React Native failure degrades to cover-only.
-    const pdf: any = await getDocument({ data: base64ToBytes(base64) }).promise;
+
+    const pdf: any = await getDocument({
+      data: base64ToBytes(base64),
+    }).promise;
+
     totalPages = pdf.numPages || 0;
     logOutput('PDF_EXTRACT', 'totalPages', totalPages);
+
     try {
       const meta = await pdf.getMetadata();
       author = meta?.info?.Author || author;
       logOutput('PDF_EXTRACT', 'author', author);
     } catch {}
+
     const parts: string[] = [];
+
     for (let i = 1; i <= totalPages; i++) {
       const page = await pdf.getPage(i);
       const content = await page.getTextContent();
-      parts.push((content.items as { str: string }[]).map((it) => it.str).join(' '));
+
+      parts.push(
+        (content.items as { str: string }[])
+          .map((it) => it.str)
+          .join(' ')
+      );
     }
+
     text = parts.join('\n\n').trim();
+
     logOutput('PDF_EXTRACT', 'extractedCharacters', text.length);
     logSuccess('PDF_EXTRACT', 'text extraction');
+
   } catch (err: unknown) {
     logError('PDF_EXTRACT', 'Failed to extract PDF text', {
       functionName: 'importBook()',
       reason: err instanceof Error ? err.message : 'Unknown extraction error',
       stack: err instanceof Error ? err.stack : undefined,
     });
-    logWarn('PDF_EXTRACT', 'Extraction unavailable; keeping book with fallback cover');
+
+    logWarn(
+      'PDF_EXTRACT',
+      'Extraction unavailable; keeping book with fallback cover'
+    );
   }
 
   logOutput('PDF_IMPORT', 'bookId', id);
