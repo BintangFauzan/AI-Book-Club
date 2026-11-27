@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, Pressable } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, Pressable, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { getDocumentAsync } from 'expo-document-picker';
@@ -54,7 +54,7 @@ export default function HomeScreen() {
       logInfo('PDF_IMPORT', 'Opening device file picker (PDF only)');
       const result = await getDocumentAsync({
         type: 'application/pdf',
-        copyToCacheDirectory: true,
+        copyToCacheDirectory: Platform.OS !== 'android',
       });
       if (result.canceled || result.assets.length === 0) {
         logWarn('PDF_IMPORT', 'File picker cancelled or no asset selected');
