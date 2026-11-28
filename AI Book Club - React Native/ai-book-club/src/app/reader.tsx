@@ -20,15 +20,23 @@ import { ProgressBar } from '@/components/ProgressBar';
 import { MiniCover } from '@/components/MiniCover';
 import { Toast } from '@/components/Toast';
 import { useReader } from '@/contexts/ReaderContext';
+import type { ReaderLanguage } from '@/contexts/ReaderContext';
 import { useToast } from '@/contexts/ToastContext';
 import { useHighlights } from '@/contexts/HighlightContext';
+import { segmentParagraph } from '@/helpers/translation';
 import type { Highlight } from '@/services/highlights';
+import { TRANSLATE_LANGUAGES } from '@/services/translation';
 
 const HighlightColors = [
   { label: 'Pasir', value: DesignColors.sand },
   { label: 'Biru', value: DesignColors.blue },
   { label: 'Jingga', value: DesignColors.orange },
 ] as const;
+
+const LanguageOptions: { code: ReaderLanguage; label: string }[] = [
+  { code: 'or', label: 'Asli' },
+  ...TRANSLATE_LANGUAGES,
+];
 
 type TextToken = {
   text: string;
@@ -60,7 +68,7 @@ export default function ReaderScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { toast, showToast } = useToast();
-  const { book, loaded, hasReadableText, current, total, percent, paragraphs, goTo, fontFamily, fontSize, setFontFamily, changeFontSize } = useReader();
+  const { book, loaded, hasReadableText, current, total, percent, paragraphs, goTo, fontFamily, fontSize, setFontFamily, changeFontSize, language, setLanguage, translating, displayParagraphs, translatedHighlights } = useReader();
   const { highlights, saveHighlight: storeHighlight, removeHighlight: deleteHighlight } = useHighlights();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [highlightColor, setHighlightColor] = useState<string>(DesignColors.sand);
@@ -83,6 +91,11 @@ export default function ReaderScreen() {
       start: highlight.start,
       end: highlight.end,
     });
+  }
+
+  function openEditorById(id: string) {
+    const highlight = bookHighlights.find((item) => item.id === id);
+    if (highlight) openEditorFor(highlight);
   }
 
   function closeEditor() {
@@ -297,6 +310,37 @@ export default function ReaderScreen() {
                   </Pressable>
                 ))}
               </View>
+              {hasReadableText && Platform.OS !== 'web' ? (
+                <>
+                  <Text style={styles.settingsLabel}>Bahasa</Text>
+                  <View style={styles.fontRow}>
+                    {LanguageOptions.map((option) => (
+                      <Pressable
+                        key={option.code}
+                        style={({ pressed }) => [
+                          styles.fontChip,
+                          option.code === language && styles.fontChipActive,
+                          pressed && styles.pressed,
+                        ]}
+                        onPress={() => setLanguage(option.code)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Bahasa ${option.label}`}
+                        accessibilityState={{ selected: option.code === language }}
+                      >
+                        <Text
+                          style={[
+                            styles.fontChipText,
+                            option.code === language && styles.fontChipTextActive,
+                          ]}
+                        >
+                          {option.label}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  {translating ? <Text style={styles.tiny}>Menerjemahkan halaman…</Text> : null}
+                </>
+              ) : null}
             </View>
           ) : null}
 
@@ -307,37 +351,65 @@ export default function ReaderScreen() {
           <Text style={styles.bookAuthor}>{book.author}</Text>
 
           <Text style={styles.eyebrow}>ISI BUKU</Text>
-          <Text style={styles.tiny}>Dobel ketuk kata awal, lalu dobel ketuk kata akhir untuk highlight.</Text>
+          <Text style={styles.tiny}>
+            {language === 'or'
+              ? 'Dobel ketuk kata awal, lalu dobel ketuk kata akhir untuk highlight.'
+              : 'Terjemahan mesin. Ketuk highlight tersimpan untuk mengubah warna atau catatan.'}
+          </Text>
           {hasReadableText ? (
             paragraphs.map((p, i) => {
               const paragraphHighlights = bookHighlights.filter((h) => h.page === current && h.index === i);
               const activeSelection =
                 selection && selection.page === current && selection.index === i ? selection : null;
+              const paragraphRanges = translatedHighlights.filter((range) => range.index === i);
               return (
                 <View key={i} style={styles.paragraphBlock}>
-                  <Text
-                    style={[styles.p, { fontFamily, fontSize, lineHeight: Math.round(fontSize * 1.75) }]}
-                    accessibilityLabel={`Paragraf ${i + 1}. Dobel ketuk kata awal lalu dobel ketuk kata akhir untuk menandai kutipan`}
-                  >
-                    {tokenize(p).map((token) => {
-                      const existing = paragraphHighlights.find(
-                        (h) => token.start >= h.start && token.end <= h.end
-                      );
-                      const selected = activeSelection && token.start >= activeSelection.start && token.end <= activeSelection.end;
-                      const backgroundColor = selected ? highlightColor : existing?.color;
-                      return (
-                        <Text
-                          key={token.start}
-                          style={backgroundColor ? { backgroundColor } : undefined}
-                          onPress={(event) =>
-                            handleWordPress(current, i, token.start, token.end, event.nativeEvent.timestamp)
-                          }
-                        >
-                          {token.text}
-                        </Text>
-                      );
-                    })}
-                  </Text>
+                  {language === 'or' ? (
+                    <Text
+                      style={[styles.p, { fontFamily, fontSize, lineHeight: Math.round(fontSize * 1.75) }]}
+                      accessibilityLabel={`Paragraf ${i + 1}. Dobel ketuk kata awal lalu dobel ketuk kata akhir untuk menandai kutipan`}
+                    >
+                      {tokenize(p).map((token) => {
+                        const existing = paragraphHighlights.find(
+                          (h) => token.start >= h.start && token.end <= h.end
+                        );
+                        const selected = activeSelection && token.start >= activeSelection.start && token.end <= activeSelection.end;
+                        const backgroundColor = selected ? highlightColor : existing?.color;
+                        return (
+                          <Text
+                            key={token.start}
+                            style={backgroundColor ? { backgroundColor } : undefined}
+                            onPress={(event) =>
+                              handleWordPress(current, i, token.start, token.end, event.nativeEvent.timestamp)
+                            }
+                          >
+                            {token.text}
+                          </Text>
+                        );
+                      })}
+                    </Text>
+                  ) : (
+                    <Text
+                      style={[styles.p, { fontFamily, fontSize, lineHeight: Math.round(fontSize * 1.75) }]}
+                      accessibilityLabel={`Paragraf ${i + 1} terjemahan`}
+                    >
+                      {segmentParagraph(displayParagraphs[i] ?? p, paragraphRanges).map((segment, index) => {
+                        const range = segment.range;
+                        if (!range) {
+                          return <Text key={index}>{segment.text}</Text>;
+                        }
+                        return (
+                          <Text
+                            key={index}
+                            style={{ backgroundColor: range.color }}
+                            onPress={() => openEditorById(range.id)}
+                          >
+                            {segment.text}
+                          </Text>
+                        );
+                      })}
+                    </Text>
+                  )}
                   {paragraphHighlights
                     .filter((h) => h.note)
                     .map((h) => (
